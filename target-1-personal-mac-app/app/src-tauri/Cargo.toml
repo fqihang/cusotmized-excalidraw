@@ -1,0 +1,22 @@
+[package]
+name = "personal-excalidraw"
+version = "0.1.10"
+description = "A local-first personal Excalidraw workspace for macOS"
+authors = ["Personal Excalidraw"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "personal_excalidraw_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+walkdir = "2"

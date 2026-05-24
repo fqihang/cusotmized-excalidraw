@@ -1,0 +1,24 @@
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Frontend builds
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Rust/Tauri builds
+target/
+
+# Local app data and editor state
+.personal-excalidraw/
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

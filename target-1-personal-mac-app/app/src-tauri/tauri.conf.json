@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Personal Excalidraw Files",
+  "version": "0.1.10",
+  "identifier": "io.personal.excalidraw.files",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:5174",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "url": "index.html",
+        "title": "Personal Excalidraw Files",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true,
+        "visible": true,
+        "focus": true,
+        "center": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "macOSPrivateApi": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "category": "Productivity",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "shortDescription": "Local-first Excalidraw workspace",
+    "longDescription": "A local-first personal Excalidraw workspace with folders, search, tags, thumbnails and autosave.",
+    "copyright": "Personal Excalidraw Files",
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
