@@ -2,6 +2,8 @@
 
 Agent Sharing lets a user share Excalidraw context with Codex, Claude Code, or another local agent without copying a large `.excalidraw` JSON blob. The app creates a named, read-only context package and exposes it through a local HTTP/MCP server only while the user turns the feature on.
 
+Implementation notes for future maintenance live in [AGENT_SHARING_MAINTAINER_NOTES.md](AGENT_SHARING_MAINTAINER_NOTES.md).
+
 ## First Version Scope
 
 - Read-only local sharing.

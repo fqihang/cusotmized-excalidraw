@@ -77,4 +77,4 @@ Claude Code `.mcp.json` 示例：
 }
 ```
 
-详细设计见 [AGENT_SHARING.md](AGENT_SHARING.md)。
+详细设计见 [AGENT_SHARING.md](AGENT_SHARING.md)，代码维护沉淀见 [AGENT_SHARING_MAINTAINER_NOTES.md](AGENT_SHARING_MAINTAINER_NOTES.md)。
