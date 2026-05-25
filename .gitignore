@@ -15,6 +15,7 @@ target/
 # Local app data and editor state
 .personal-excalidraw/
 .worktrees/
+.superpowers/
 .vscode/
 .idea/
 
