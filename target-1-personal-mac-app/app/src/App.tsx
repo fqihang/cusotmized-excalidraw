@@ -106,6 +106,16 @@ import {
   type AgentShareSummary,
   type AgentShareStatus,
 } from "./agentSharing";
+import {
+  AgentShareHandoffPanel,
+  AgentShareMenu,
+  isShareReadable,
+  type HandoffPanelState,
+} from "./AgentShareHandoff";
+import {
+  buildAgentHandoffPrompt,
+  type AgentTarget,
+} from "./agentSharingPrompts";
 
 const AUTOSAVE_DELAY_MS = 900;
 const EXTERNAL_RESCAN_INTERVAL_MS = 2500;
@@ -501,6 +511,10 @@ export const App = () => {
     useState<AgentShareStatus | null>(null);
   const [agentShares, setAgentShares] = useState<AgentShareSummary[]>([]);
   const [isSharingToAgent, setIsSharingToAgent] = useState(false);
+  const [isAgentShareMenuOpen, setIsAgentShareMenuOpen] = useState(false);
+  const [handoffPanel, setHandoffPanel] = useState<HandoffPanelState | null>(
+    null,
+  );
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(false);
   const [isSharesManagerOpen, setIsSharesManagerOpen] = useState(false);
   const [exposeCurrentSelection, setExposeCurrentSelection] = useState(false);
@@ -549,6 +563,17 @@ export const App = () => {
         sortMode,
       }),
     [favoritesOnly, query, scenes, selectedFolder, selectedTag, sortMode],
+  );
+  const recentAgentShares = useMemo(
+    () =>
+      [...agentShares]
+        .sort(
+          (left, right) =>
+            new Date(right.updatedAt).getTime() -
+            new Date(left.updatedAt).getTime(),
+        )
+        .slice(0, 5),
+    [agentShares],
   );
 
   const setWorkspaceVersion = useCallback((next: WorkspaceSession) => {
@@ -699,8 +724,10 @@ export const App = () => {
     try {
       await navigator.clipboard.writeText(value);
       setError(`${label} 已复制。`);
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      return false;
     }
   }, []);
 
@@ -735,6 +762,33 @@ export const App = () => {
       window.removeEventListener("blur", closeOnWindowBlur);
     };
   }, [openMenuSceneId]);
+
+  useEffect(() => {
+    if (!isAgentShareMenuOpen) {
+      return;
+    }
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        !(target instanceof Element) ||
+        target.closest(".agent-share-menu-shell")
+      ) {
+        return;
+      }
+      setIsAgentShareMenuOpen(false);
+    };
+    const closeOnKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsAgentShareMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown, true);
+    document.addEventListener("keydown", closeOnKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown, true);
+      document.removeEventListener("keydown", closeOnKeyDown);
+    };
+  }, [isAgentShareMenuOpen]);
 
   useEffect(() => {
     if (!workspace) {
@@ -1535,7 +1589,10 @@ export const App = () => {
   );
 
   const buildAgentSharePayload = useCallback(
-    async (options: { runtimeCurrentSelection: boolean }): Promise<AgentSharePayload> => {
+    async (options: {
+      runtimeCurrentSelection: boolean;
+      forceSceneScope?: boolean;
+    }): Promise<AgentSharePayload> => {
       if (!activeScene) {
         throw new Error("No active scene.");
       }
@@ -1546,7 +1603,7 @@ export const App = () => {
       const allElements = draft.elements.filter((element) => !isDeletedElement(element));
       const selectedIds = selectedElementIdsFromAppState(draft.appState);
       const selectedElements =
-        selectedIds.size > 0
+        !options.forceSceneScope && selectedIds.size > 0
           ? allElements.filter((element) => {
               const id = elementId(element);
               return id ? selectedIds.has(id) : false;
@@ -1650,7 +1707,39 @@ export const App = () => {
     [activeScene, getActiveDraft],
   );
 
-  const shareActiveToAgent = useCallback(async () => {
+  const copyHandoffPrompt = useCallback(
+    async (
+      share: AgentShareSummary,
+      target: AgentTarget,
+      statusOverride?: AgentShareStatus | null,
+    ) => {
+      if (!isShareReadable(share)) {
+        setError(
+          `Share ${share.shareId} is ${share.status}. Create a fresh Agent Share to use this context.`,
+        );
+        return false;
+      }
+      const status = statusOverride ?? agentShareStatus;
+      const baseUrl = status?.baseUrl ?? DEFAULT_AGENT_SHARE_BASE_URL;
+      const mcpUrl = `${baseUrl}/mcp`;
+      const manifestUrl = `${baseUrl}/v1/shares/${share.shareId}/manifest`;
+      return copyAgentText(
+        buildAgentHandoffPrompt(target, {
+          share,
+          baseUrl,
+          mcpUrl,
+          manifestUrl,
+          apiEnabled: Boolean(status?.enabled),
+        }),
+        target === "codex" ? "Codex handoff prompt" : "Claude handoff prompt",
+      );
+    },
+    [agentShareStatus, copyAgentText],
+  );
+
+  const shareActiveToAgent = useCallback(async (
+    preferredScope: "selection" | "scene" = "selection",
+  ) => {
     if (!workspace || !activeScene) {
       return;
     }
@@ -1674,26 +1763,27 @@ export const App = () => {
         throw new Error("Agent Sharing API 没有返回可用的本地地址。");
       }
 
-      const share = await buildAgentSharePayload({ runtimeCurrentSelection: false });
-      await registerAgentShare(share);
+      const share = await buildAgentSharePayload({
+        runtimeCurrentSelection: false,
+        forceSceneScope: preferredScope === "scene",
+      });
+      const registeredShare = await registerAgentShare(share);
       const nextStatus = await refreshAgentShareStatus();
       await refreshAgentShares();
-
-      const shareNote = [
-        "Personal Excalidraw Agent Share",
-        `shareId=${share.shareId}`,
-        `title=${share.title}`,
-        `manifest=${status.baseUrl}/v1/shares/${share.shareId}/manifest`,
-        `mcp=${status.baseUrl}/mcp`,
-        "Use list_recent_shares or get_share_manifest in the personal-excalidraw MCP.",
-      ].join("\n");
-      try {
-        await navigator.clipboard?.writeText(shareNote);
-      } catch {
-        // Clipboard is a convenience; the share itself is already registered.
-      }
+      const handoffStatus = nextStatus ?? status;
+      const copied = await copyHandoffPrompt(
+        registeredShare,
+        "codex",
+        handoffStatus,
+      );
+      setHandoffPanel({
+        share: registeredShare,
+        autoCopiedTarget: "codex",
+      });
       setError(
-        `已创建 Agent 分享：${share.title} (${share.shareId})，manifest 地址已复制。`,
+        copied
+          ? `已创建 Agent 分享：${registeredShare.title}，Codex handoff prompt 已复制。`
+          : `已创建 Agent 分享：${registeredShare.title}，请在面板中复制 handoff prompt。`,
       );
       if (nextStatus) {
         setAgentShareStatus(nextStatus);
@@ -1707,6 +1797,7 @@ export const App = () => {
     activeScene,
     agentShareStatus,
     buildAgentSharePayload,
+    copyHandoffPrompt,
     refreshAgentShareStatus,
     refreshAgentShares,
     saveStatus,
@@ -1756,25 +1847,6 @@ export const App = () => {
       refreshAgentShareStatus,
       refreshAgentShares,
     ],
-  );
-
-  const copySharePrompt = useCallback(
-    async (share: AgentShareSummary) => {
-      const prompt = [
-        "Use the personal-excalidraw MCP server to read this shared sketch.",
-        `Share title: ${share.title}`,
-        `shareId: ${share.shareId}`,
-        `sourceFile: ${share.sourceFile}`,
-        "",
-        "Recommended flow:",
-        "1. Call get_share_manifest with the shareId.",
-        "2. Read the brief first.",
-        "3. Inspect image.png or image.svg for visual layout.",
-        "4. Read selection.json when exact structure, text, bounds, or element IDs are needed.",
-      ].join("\n");
-      await copyAgentText(prompt, "Share 提示词");
-    },
-    [copyAgentText],
   );
 
   const revokeShare = useCallback(
@@ -2439,20 +2511,28 @@ export const App = () => {
                 >
                   {agentShareStatus?.enabled ? "Agent On" : "Agent Off"}
                 </button>
-                <button
-                  className="agent-share-button"
-                  type="button"
-                  title="Share to Agent"
-                  disabled={isSharingToAgent}
-                  onClick={() => void shareActiveToAgent()}
-                >
-                  {isSharingToAgent ? (
-                    <Loader2 size={14} className="spin" />
-                  ) : (
-                    <Share2 size={14} />
-                  )}
-                  Share
-                </button>
+                <AgentShareMenu
+                  apiEnabled={Boolean(agentShareStatus?.enabled)}
+                  activeSceneAvailable={Boolean(activeScene)}
+                  isOpen={isAgentShareMenuOpen}
+                  isSharing={isSharingToAgent}
+                  recentShares={recentAgentShares}
+                  onToggleOpen={() =>
+                    setIsAgentShareMenuOpen((open) => !open)
+                  }
+                  onClose={() => setIsAgentShareMenuOpen(false)}
+                  onShareSelection={() => void shareActiveToAgent("selection")}
+                  onShareScene={() => void shareActiveToAgent("scene")}
+                  onCopyPrompt={(share, target) =>
+                    void copyHandoffPrompt(share, target)
+                  }
+                  onOpenManager={() => {
+                    setIsSharesManagerOpen(true);
+                    void refreshAgentShares();
+                  }}
+                  formatDateTime={formatDateTime}
+                  statusLabel={shareStatusLabel}
+                />
                 <span className={`save-state save-state--${saveStatus}`}>
                   {saveStatus === "saving" && (
                     <Loader2 size={14} className="spin" />
@@ -2762,9 +2842,12 @@ export const App = () => {
                           )}
                         </div>
                         <div className="share-row__actions">
-                          <button onClick={() => void copySharePrompt(share)}>
+                          <button
+                            disabled={!isShareReadable(share)}
+                            onClick={() => void copyHandoffPrompt(share, "codex")}
+                          >
                             <Copy size={14} />
-                            Prompt
+                            Codex
                           </button>
                           <button onClick={() => beginEditShare(share)}>
                             <Pencil size={14} />
@@ -2803,6 +2886,19 @@ export const App = () => {
           event.currentTarget.value = "";
         }}
       />
+
+      {handoffPanel && (
+        <AgentShareHandoffPanel
+          state={handoffPanel}
+          onCopyPrompt={(share, target) => void copyHandoffPrompt(share, target)}
+          onOpenManager={() => {
+            setIsSharesManagerOpen(true);
+            void refreshAgentShares();
+          }}
+          onClose={() => setHandoffPanel(null)}
+          formatDateTime={formatDateTime}
+        />
+      )}
 
       {error && <div className="toast">{error}</div>}
     </main>

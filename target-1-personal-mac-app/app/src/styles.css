@@ -977,8 +977,8 @@ body,
 .agent-handoff-panel {
   position: fixed;
   right: 24px;
-  bottom: 24px;
-  z-index: 30;
+  bottom: 86px;
+  z-index: 31;
   width: min(420px, calc(100vw - 32px));
   padding: 16px;
   border: 1px solid rgba(148, 163, 184, 0.32);
