@@ -879,6 +879,194 @@ body,
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.24);
 }
 
+.agent-share-menu-shell {
+  position: relative;
+}
+
+.agent-share-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  width: min(360px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+.agent-share-menu button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.agent-share-menu__divider {
+  height: 1px;
+  margin: 8px 0;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.agent-share-menu__section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px 8px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.agent-share-menu__section em {
+  color: #ef4444;
+  font-style: normal;
+  text-transform: none;
+}
+
+.agent-share-menu__empty {
+  padding: 12px 8px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.agent-share-menu__share {
+  display: grid;
+  gap: 8px;
+  padding: 10px 8px;
+  border-radius: 8px;
+}
+
+.agent-share-menu__share:hover {
+  background: #f8fafc;
+}
+
+.agent-share-menu__share strong,
+.agent-share-menu__share span,
+.agent-share-menu__share small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-share-menu__share strong {
+  color: #1f2937;
+  font-size: 14px;
+}
+
+.agent-share-menu__share span,
+.agent-share-menu__share small,
+.agent-share-menu__disabled {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.agent-share-menu__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.agent-share-menu__actions button {
+  justify-content: center;
+  min-height: 34px;
+}
+
+.agent-handoff-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 22px 55px rgba(15, 23, 42, 0.22);
+}
+
+.agent-handoff-panel button {
+  min-height: 30px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d252d;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 9px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.agent-handoff-panel button:hover:not(:disabled) {
+  background: #f4f6f8;
+  border-color: #98a2b3;
+}
+
+.agent-handoff-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.agent-handoff-panel header span,
+.agent-handoff-panel dt {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.agent-handoff-panel header strong {
+  display: block;
+  margin-top: 3px;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.agent-handoff-panel dl {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.agent-handoff-panel dl div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.agent-handoff-panel dd {
+  margin: 0;
+  overflow: hidden;
+  color: #334155;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-handoff-panel p {
+  margin: 0 0 14px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.agent-handoff-panel__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+}
+
+.agent-handoff-panel__actions button {
+  min-height: 36px;
+}
+
 .error-text {
   color: #b42318;
   margin: 0;
