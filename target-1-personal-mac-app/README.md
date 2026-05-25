@@ -41,40 +41,37 @@ Agent Sharing 用来把“画布里的上下文”交给其它 agent 产品，�
 - 应用右上角提供 `Agent On/Off` 开关，默认关闭。
 - 左侧工具栏的齿轮入口提供完整 Agent Sharing 设置。
 - 开启后只监听 `127.0.0.1`，默认端口 `37411`；如果端口被占用，会自动选择本机可用端口。
-- 每次开启都会生成本地 bearer token；关闭后停止监听并失效所有 share。
-- `Share` 按钮或文件更多菜单里的“分享给 Agent”会把当前选区打包；没有选区时分享当前文件快照。
-- share 是只读、快照式、短期有效，默认 TTL 为 24 小时。
-- 应用会把 shareId、manifest URL 和 bearer token 复制到剪贴板；设置面板可复制 Codex MCP 配置、Claude MCP 配置、HTTP API 说明和 skill 模板。
+- 本机版无 bearer token；关闭后停止监听，share 记录仍可在 App 内管理，但不可被 agent 读取。
+- `Share` 菜单可以分享当前选区、分享整个文件、查看最近 share，并重新复制 Codex/Claude handoff prompt。
+- 文件更多菜单里的“分享给 Agent”会把当前选区打包；没有选区时分享当前文件快照。
+- share 是只读、快照式、短期有效，默认 TTL 为 7 天。
+- 分享成功后会弹出 handoff 面板并自动复制 Codex prompt；如果 Codex/Claude 还没配置 MCP，prompt 会引导配置后再读取同一个 share。
+- 设置面板可复制 Codex MCP 配置、Claude MCP 配置、HTTP API 说明和 skill 模板。
 
 本地 API 示例：
 
 ```bash
-curl -H "Authorization: Bearer $PERSONAL_EXCALIDRAW_TOKEN" \
-  http://127.0.0.1:37411/v1/shares/sh_example/manifest
+curl http://127.0.0.1:37411/v1/shares/sh_example/manifest
 ```
 
-当前 API 已提供 `/v1/status`、`/v1/shares`、`/v1/shares/{shareId}/manifest`、`selection.json`、`scene.excalidraw`、`brief.md`、`render.png` 和 `render.svg`。MCP transport 会复用同一个 share registry 继续实现。
+当前 API 已提供 `/v1/status`、`/v1/shares`、`/v1/shares/{shareId}/manifest`、`selection.json`、`scene.excalidraw`、`brief.md`、`render.png` 和 `render.svg`。MCP endpoint 复用同一个 share registry。
 
-MCP transport 补齐后的 Codex 配置示例：
+Codex MCP 配置示例：
 
 ```toml
 [mcp_servers.personal_excalidraw]
 url = "http://127.0.0.1:37411/mcp"
-bearer_token_env_var = "PERSONAL_EXCALIDRAW_TOKEN"
 enabled = true
 ```
 
-MCP transport 补齐后的 Claude Code `.mcp.json` 示例：
+Claude Code `.mcp.json` 示例：
 
 ```json
 {
   "mcpServers": {
     "personal-excalidraw": {
       "type": "http",
-      "url": "http://127.0.0.1:37411/mcp",
-      "headers": {
-        "Authorization": "Bearer ${PERSONAL_EXCALIDRAW_TOKEN}"
-      }
+      "url": "http://127.0.0.1:37411/mcp"
     }
   }
 }

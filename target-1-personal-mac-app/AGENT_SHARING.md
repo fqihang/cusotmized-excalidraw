@@ -19,8 +19,11 @@ Agent Sharing lets a user share Excalidraw context with Codex, Claude Code, or a
 2. User clicks `Share`, uses the file row menu `分享给 Agent`, or uses the macOS `Agent` menu.
 3. If Agent Sharing is Off, the app starts the local API.
 4. The app saves a dirty scene first, then registers a snapshot share.
-5. The app copies a short share note containing the shareId, title, manifest URL, and MCP URL.
-6. The agent uses MCP `list_recent_shares` or `get_share_manifest`, then reads the smallest useful resource.
+5. The app opens a handoff panel and auto-copies a Codex handoff prompt.
+6. The user pastes that prompt into Codex or Claude Code.
+7. If the receiving agent has MCP configured, it reads the share through MCP.
+8. If MCP is missing, the prompt guides setup first, then the user retries the same share.
+9. The user can re-copy prompts later from the `Share` menu or Shares Manager.
 
 If no shapes are selected, the share scope falls back to the whole current scene.
 
@@ -31,6 +34,18 @@ If no shapes are selected, the share scope falls back to the whole current scene
 - Settings: API status, port, share count, 7-day TTL, no-token status, current selection toggle, config copy buttons, and share cleanup actions.
 - Shares Manager: open from settings or the macOS `Agent` menu; rename, revoke, delete, clean, and copy a share-specific prompt.
 - macOS menu bar: `Agent > Share Current to Agent`, `Toggle Agent Sharing API`, `Open Shares Manager`, and `Open Agent Sharing Settings`.
+
+## Share Handoff
+
+The `Share` button is also the recovery entry for previous handoffs. It contains:
+
+- `Share current selection`
+- `Share whole file`
+- recent shares with copy actions for readable shares
+- disabled status text for expired or revoked shares
+- `Open Shares Manager`
+
+After creating a share, the app opens a handoff panel and auto-copies the Codex prompt. The prompt includes the shareId, MCP URL, manifest URL, a first-run MCP setup snippet, HTTP fallback guidance, and read-order rules.
 
 ## Share Manifest
 
