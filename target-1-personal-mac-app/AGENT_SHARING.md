@@ -1,38 +1,40 @@
 # Agent Sharing
 
-Agent Sharing 的目标是让用户在 Excalidraw 里选择一组图形，点 `Share to Agent`，然后让 Codex、Claude Code 或其它 agent 通过本地 API/MCP 读取这个上下文包。用户不需要复制完整 `.excalidraw` JSON。
+Agent Sharing lets a user share Excalidraw context with Codex, Claude Code, or another local agent without copying a large `.excalidraw` JSON blob. The app creates a named, read-only context package and exposes it through a local HTTP/MCP server only while the user turns the feature on.
 
-## 第一版范围
+## First Version Scope
 
-- 只读读取，不提供写回。
-- 本地 API 默认关闭；开启后只监听 `127.0.0.1`。
-- 每次开启生成 bearer token。
-- share 默认是 snapshot，不实时追踪文件变化。
-- 默认 TTL 为 24 小时；关闭 API 会停止监听并清空所有 share。
-- 支持“当前选区”和“当前文件”两种 scope。
-- 当前先提供 HTTP 数据面；MCP transport 复用同一个 share registry 后续补齐。
+- Read-only local sharing.
+- API switch is default Off. Off means no listener and no MCP/HTTP access.
+- Local only: the server binds to `127.0.0.1`.
+- No bearer token in this version because access is local-machine only.
+- Share data is persisted in the app data directory, but cannot be read while the API is Off.
+- Snapshot shares expire after 7 days by default.
+- `Expose current selection` is a separate live runtime share and is cleared when disabled or when the API stops.
+- Share management supports rename, prompt copy, revoke, delete, clean expired, and revoke all.
 
-## 用户路径
+## User Path
 
-1. 用户在画布中选择一组图形。
-2. 点击右上角 `Share`，或在文件更多菜单点击“分享给 Agent”。
-3. 如果 Agent Sharing 处于 Off，应用自动启动本地 API。
-4. 应用保存当前 dirty scene，生成 snapshot share。
-5. 应用把 shareId、manifest URL 和 bearer token 复制到剪贴板。
-6. 用户把这段信息交给 agent，agent 读取 manifest、brief、image 和结构化 selection。
+1. User selects shapes on the canvas.
+2. User clicks `Share`, uses the file row menu `分享给 Agent`, or uses the macOS `Agent` menu.
+3. If Agent Sharing is Off, the app starts the local API.
+4. The app saves a dirty scene first, then registers a snapshot share.
+5. The app copies a short share note containing the shareId, title, manifest URL, and MCP URL.
+6. The agent uses MCP `list_recent_shares` or `get_share_manifest`, then reads the smallest useful resource.
 
-没有选区时，share scope 会退化为当前文件快照。
+If no shapes are selected, the share scope falls back to the whole current scene.
 
-## App 入口
+## App Entrances
 
-- 画布右上角：`Agent On/Off` 快速开关和 `Share` 快速分享。
-- 文件更多菜单：对当前文件执行“分享给 Agent”。
-- 左侧齿轮设置：查看 API 状态、端口、share 数量、TTL，复制 token env、Codex MCP 配置、Claude MCP 配置、HTTP API 说明和 skill 模板。
-- `Revoke`：关闭本地 API 并立即清空所有 share。
+- Canvas top right: `Agent On/Off` and `Share`.
+- File row menu: `分享给 Agent`.
+- Settings: API status, port, share count, 7-day TTL, no-token status, current selection toggle, config copy buttons, and share cleanup actions.
+- Shares Manager: open from settings or the macOS `Agent` menu; rename, revoke, delete, clean, and copy a share-specific prompt.
+- macOS menu bar: `Agent > Share Current to Agent`, `Toggle Agent Sharing API`, `Open Shares Manager`, and `Open Agent Sharing Settings`.
 
 ## Share Manifest
 
-每个 share 是一个上下文包：
+Every share is a context package, not only an Excalidraw file:
 
 ```json
 {
@@ -40,15 +42,25 @@ Agent Sharing 的目标是让用户在 Excalidraw 里选择一组图形，点 `S
   "shareId": "sh_abc123",
   "scope": "selection",
   "title": "Checkout redesign sketch",
+  "description": "Error and loading states",
+  "labels": ["checkout", "ui"],
   "sceneId": "...",
   "sourceFile": "scenes/checkout.excalidraw",
-  "createdAt": "2026-05-24T10:00:00.000Z",
-  "expiresAt": "2026-05-25T10:00:00.000Z",
+  "createdAt": "2026-05-25T10:00:00.000Z",
+  "updatedAt": "2026-05-25T10:00:00.000Z",
+  "expiresAt": "2026-06-01T10:00:00.000Z",
+  "status": "active",
+  "visibility": "local",
+  "originDeviceId": "local-device",
+  "ownerName": "local-user",
+  "syncMode": "snapshot",
+  "permissions": ["read"],
   "selection": {
     "elementIds": ["..."],
     "bounds": { "x": 0, "y": 0, "width": 1200, "height": 800 },
     "text": ["Primary CTA", "Error state", "Loading"]
   },
+  "textPreview": ["Primary CTA"],
   "assets": {
     "manifest": "/v1/shares/sh_abc123/manifest",
     "excalidraw": "/v1/shares/sh_abc123/scene.excalidraw",
@@ -60,24 +72,22 @@ Agent Sharing 的目标是让用户在 Excalidraw 里选择一组图形，点 `S
 }
 ```
 
-对 agent 的读取优先级：
+The title, description, and labels are the human-facing naming layer. Agents should use them, along with `sourceFile` and `textPreview`, to identify the right share before asking the user for a shareId.
 
-1. `brief.md`：先获得低成本语义摘要。
-2. `render.png` 或 `render.svg`：理解视觉布局。
-3. `selection.json`：需要精确结构、文本、bounds、元素 ID 时读取。
-4. `scene.excalidraw`：需要完整追溯或兼容 Excalidraw 工具链时读取。
+## Read Order For Agents
+
+1. `brief.md`: low-cost semantic summary.
+2. `render.png` or `render.svg`: visual layout.
+3. `selection.json`: exact text, bounds, element IDs, and structure.
+4. `scene.excalidraw`: full source snapshot for traceability or tooling compatibility.
 
 ## HTTP API
 
-Base URL 示例：`http://127.0.0.1:37411`
+Base URL: `http://127.0.0.1:37411`
 
-所有非 `/health` 请求都需要：
+Auth: none. The app controls access by starting and stopping the local listener.
 
-```text
-Authorization: Bearer <token>
-```
-
-Endpoints：
+Endpoints:
 
 - `GET /health`
 - `GET /v1/status`
@@ -88,29 +98,39 @@ Endpoints：
 - `GET /v1/shares/{shareId}/brief.md`
 - `GET /v1/shares/{shareId}/render.png`
 - `GET /v1/shares/{shareId}/render.svg`
+- `GET /v1/current-selection/manifest`
+- `GET /v1/current-selection/brief.md`
+- `GET /v1/current-selection/render.png`
+- `GET /v1/current-selection/render.svg`
+- `POST /mcp`
 
-`/mcp` 当前返回 `501 mcp_transport_not_implemented`，表示 HTTP 数据面已就绪，MCP transport 待实现。
+Expired or revoked shares remain visible in lists but cannot be read.
 
-## MCP 规划
+## MCP Surface
 
-Resources：
+Resources:
 
 - `excalidraw://shares/{shareId}/manifest`
 - `excalidraw://shares/{shareId}/brief`
 - `excalidraw://shares/{shareId}/selection`
 - `excalidraw://shares/{shareId}/image.png`
+- `excalidraw://shares/{shareId}/image.svg`
 - `excalidraw://shares/{shareId}/scene.excalidraw`
+- `excalidraw://current-selection/manifest`
+- `excalidraw://current-selection/brief`
+- `excalidraw://current-selection/image.png`
 
-Tools：
+Tools:
 
 - `list_recent_shares`
-- `get_share_manifest`
-- `render_share`
 - `search_scenes`
+- `get_share_manifest`
+- `get_share_brief`
+- `render_share`
 - `get_current_selection_share`
 - `explain_api_status`
 
-Prompts：
+Prompts:
 
 - `implement-ui-from-sketch`
 - `explain-architecture-sketch`
@@ -118,46 +138,49 @@ Prompts：
 - `review-flow-from-sketch`
 - `generate-acceptance-criteria-from-sketch`
 
-## Codex 配置
+## Codex Config
 
 ```toml
 [mcp_servers.personal_excalidraw]
 url = "http://127.0.0.1:37411/mcp"
-bearer_token_env_var = "PERSONAL_EXCALIDRAW_TOKEN"
 enabled = true
 ```
 
-当前 HTTP fallback 可直接使用剪贴板里的 manifest URL 和 token。
-
-## Claude Code 配置
+## Claude Code Config
 
 ```json
 {
   "mcpServers": {
     "personal-excalidraw": {
       "type": "http",
-      "url": "http://127.0.0.1:37411/mcp",
-      "headers": {
-        "Authorization": "Bearer ${PERSONAL_EXCALIDRAW_TOKEN}"
-      }
+      "url": "http://127.0.0.1:37411/mcp"
     }
   }
 }
 ```
 
-## Agent 行为约束
+## Skill Creator Prompt
 
-- 如果用户提到“草图”“画布”“选区”“shareId”“vibe UI”或 Excalidraw，上来先检查 personal-excalidraw MCP 或用户给出的 manifest URL。
-- 优先读取 `brief.md` 和 `render.png`，需要精确结构时再读 `selection.json`。
-- 不要假设未分享的画布内容存在。
-- 如果 API 关闭或 token 无效，提示用户在应用里打开 Agent Sharing 并重新分享。
-- 做 UI 实现时，先把草图解释成布局、组件、状态、交互，再实现并截图验证。
+```markdown
+Use the personal-excalidraw MCP server whenever the user mentions an Excalidraw sketch, canvas, selected shapes, shareId, vibe UI mockup, UI sketch, architecture sketch, or asks to implement, review, explain, or turn a drawing into work items.
 
-## 后续落地顺序
+Workflow:
+1. Call `list_recent_shares` and match by title, description, sourceFile, labels, and textPreview.
+2. Read `brief.md` first.
+3. Inspect `image.png` or `image.svg`.
+4. Read `selection.json` when exact structure, bounds, text, or element IDs are needed.
+5. Read `scene.excalidraw` only when full source data is necessary.
 
-1. 把当前 HTTP 数据面补成完整 MCP resources/tools/prompts。
-2. 设置面板增强：TTL 配置、audit log 可视化、Revoke all shares 分层确认。
-3. Codex / Claude Code 配置复制按钮。
-4. `search_scenes` 和 `get_current_selection_share`。
-5. 明确实时跟随文件变化模式。
-6. 写回能力后置：评论、替代 UI sketch、agent 生成变体。
+Constraints:
+- Treat shares as read-only.
+- Do not assume unshared canvas content exists.
+- If the API is Off, unreachable, expired, or revoked, ask the user to open Personal Excalidraw, turn on Agent Sharing, and create or re-enable a share.
+- For UI implementation, translate the sketch into layout, components, states, and interactions before coding.
+```
+
+## Later Work
+
+- LAN share links with explicit visibility, a 24-hour TTL, and a share prompt for a teammate's agent.
+- Peer-to-peer sync for future collaborative or write-back flows.
+- Write-back tools for comments, alternative UI sketches, or agent-generated variants.
+- Settings confirmation for destructive bulk actions and a visible audit log.

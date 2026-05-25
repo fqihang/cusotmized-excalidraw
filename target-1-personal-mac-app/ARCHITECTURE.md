@@ -123,7 +123,7 @@ MVP 使用 SQLite `LIKE` 或 FTS5 做本地搜索。建议直接启用 FTS5，�
 
 ## Agent Sharing
 
-Agent Sharing 是给外部 agent 产品读取草图上下文的本地只读数据面。它不改变 `.excalidraw` 权威文件模型，也不默认暴露任何监听端口。
+Agent Sharing 是给外部 agent 产品读取草图上下文的本地只读数据面。它不改变 `.excalidraw` 权威文件模型，也不默认暴露任何监听端口。第一版是本机使用：无 token、只绑定 `127.0.0.1`、用户显式开启后才可访问。
 
 ```text
 React renderer
@@ -134,13 +134,16 @@ React renderer
 └── 调用 Tauri register_agent_share
 
 Tauri core
-├── AgentShareRegistry: in-memory share + audit log
-├── start_agent_share_server: 绑定 127.0.0.1，生成 bearer token
-├── stop_agent_share_server: 停止监听，清空 share
-└── HTTP endpoints: /v1/shares/{shareId}/...
+├── AgentShareStore: app data dir 持久化 share 包
+├── AgentShareRegistry: server runtime + current-selection runtime share
+├── start_agent_share_server: 绑定 127.0.0.1
+├── stop_agent_share_server: 停止监听，清空 current selection runtime share
+├── HTTP endpoints: /v1/shares/{shareId}/...
+└── MCP endpoint: /mcp
 
 Agent product
-├── 读取 manifest
+├── list_recent_shares / search_scenes 找到命名 share
+├── 读取 manifest 或 brief
 ├── 优先读取 brief.md + render.png
 ├── 需要精确结构时读取 selection.json
 └── 需要完整追溯时读取 scene.excalidraw
@@ -155,38 +158,44 @@ Agent product
 - `scene.excalidraw`：标准 Excalidraw JSON 快照。
 - `render.png` / `render.svg`：给 vision 或截图验证使用。
 - `brief.md`：低成本语义摘要，帮助 agent 先理解草图意图。
+- `title` / `description` / `labels`：命名层，帮助其它 agent 在 share 列表中找到正确上下文。
 
-当前版本只做 snapshot。后续如果需要“实时跟随文件变化”，必须单独显式开启，避免 agent 在用户不知情时读到不断变化的画布。
+默认 share 是 snapshot。`Expose current selection` 是单独的 runtime share，只在用户显式开启时跟随当前画布选择，并在关闭 API 或关闭开关后失效。后续如果需要“实时跟随文件变化”，必须单独显式开启，避免 agent 在用户不知情时读到不断变化的画布。
 
 ### 安全策略
 
 - 默认 Off：无监听进程，无 HTTP/MCP 访问。
 - Local only：只绑定 `127.0.0.1`。
-- Token required：每次开启生成新的 bearer token。
-- Short TTL：share 默认 24 小时过期；关闭 API 会立即清空所有 share。
+- No token：本机 V1 不要求 bearer token，权限边界来自本地监听开关。
+- Short TTL：snapshot share 默认 7 天过期；关闭 API 后 share 仍保留在本地管理器里，但不可通过 HTTP/MCP 读取。
 - Read-only：第一版没有写回、评论或修改画布能力。
-- Audit log：Tauri registry 记录 share 资源读取事件，后续可在设置面板暴露。
+- Audit log：Tauri store 记录 share 资源读取事件，后续可在设置面板暴露。
 
 ### MCP 映射
 
-MCP transport 会复用 AgentShareRegistry，不另建数据存储。规划资源：
+MCP transport 复用 `AgentShareStore` 和当前 runtime share，不另建数据存储。资源：
 
 - `excalidraw://shares/{shareId}/manifest`
 - `excalidraw://shares/{shareId}/brief`
 - `excalidraw://shares/{shareId}/selection`
 - `excalidraw://shares/{shareId}/image.png`
+- `excalidraw://shares/{shareId}/image.svg`
 - `excalidraw://shares/{shareId}/scene.excalidraw`
+- `excalidraw://current-selection/manifest`
+- `excalidraw://current-selection/brief`
+- `excalidraw://current-selection/image.png`
 
-规划 tools：
+Tools：
 
 - `list_recent_shares`
 - `get_share_manifest`
+- `get_share_brief`
 - `render_share`
 - `search_scenes`
 - `get_current_selection_share`
 - `explain_api_status`
 
-规划 prompts：
+Prompts：
 
 - `implement-ui-from-sketch`
 - `explain-architecture-sketch`
@@ -210,7 +219,7 @@ MCP transport 会复用 AgentShareRegistry，不另建数据存储。规划资�
 - 不上传任何 scene、索引或缩略图。
 - Tauri command 只暴露白名单路径操作，所有路径必须在当前 workspace 内或来自用户打开文件授权。
 - 删除默认走 macOS Trash；无法移动到 Trash 时才提示 fallback。
-- Agent Sharing 默认关闭，仅本机监听，bearer token 授权，只读读取，关闭后失效所有 share。
+- Agent Sharing 默认关闭，仅本机监听，无 token，只读读取；关闭后停止 HTTP/MCP 访问，持久 share 只能在 App 内管理。
 
 ## 技术风险
 

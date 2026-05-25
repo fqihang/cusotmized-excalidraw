@@ -660,6 +660,21 @@ body,
   font-weight: 650;
 }
 
+.toggle-row {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475467;
+  font-size: 13px;
+}
+
+.toggle-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .agent-settings__footer {
   justify-content: space-between;
   border-top: 1px solid #eef1f4;
@@ -669,6 +684,115 @@ body,
 .agent-settings__footer span {
   color: #69727d;
   font-size: 12px;
+}
+
+.shares-manager {
+  width: min(860px, 100%);
+}
+
+.share-list {
+  display: grid;
+  gap: 10px;
+}
+
+.share-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  border: 1px solid #d8dee4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.share-row__main {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.share-row__main > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.share-row__main strong {
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-row__main span,
+.share-row__main p {
+  color: #69727d;
+  font-size: 12px;
+}
+
+.share-row__main p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.share-meta,
+.share-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.share-meta span,
+.share-tags span {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.share-tags span {
+  background: #eff8ff;
+  color: #155eef;
+}
+
+.share-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-content: start;
+  gap: 8px;
+}
+
+.share-row__actions button {
+  min-height: 32px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.share-edit {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.share-edit input,
+.share-edit textarea {
+  width: 100%;
+  border: 1px solid #d8dee4;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #24292f;
+  background: #ffffff;
+  font: inherit;
+}
+
+.share-edit textarea {
+  resize: vertical;
 }
 
 @media (max-width: 780px) {
@@ -683,6 +807,14 @@ body,
   .agent-settings__footer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .share-row {
+    grid-template-columns: 1fr;
+  }
+
+  .share-row__actions {
+    justify-content: flex-start;
   }
 }
 

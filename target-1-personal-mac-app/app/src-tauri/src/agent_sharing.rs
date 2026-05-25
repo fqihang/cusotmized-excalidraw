@@ -1092,6 +1092,41 @@ fn mcp_call_tool(state: &AgentShareState, name: &str, arguments: Value) -> Resul
             };
             Ok(tool_text(uri))
         }
+        "search_scenes" => {
+            let query = arguments
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            let mut registry = state
+                .registry
+                .lock()
+                .map_err(|_| mcp_error(-32000, "state lock failed"))?;
+            let shares = registry
+                .store
+                .list_recent_shares()
+                .map_err(|error| mcp_error(-32000, &error.to_string()))?;
+            let matches: Vec<_> = shares
+                .into_iter()
+                .filter(|share| {
+                    if query.is_empty() {
+                        return true;
+                    }
+                    let haystack = format!(
+                        "{} {} {} {} {}",
+                        share.title,
+                        share.description,
+                        share.source_file,
+                        share.labels.join(" "),
+                        share.text_preview.join(" ")
+                    )
+                    .to_lowercase();
+                    haystack.contains(&query)
+                })
+                .collect();
+            Ok(tool_text(pretty_json(&json!({ "shares": matches }))))
+        }
         "get_current_selection_share" => {
             let registry = state
                 .registry
@@ -1155,6 +1190,16 @@ fn mcp_tools() -> Value {
                     "format": { "type": "string", "enum": ["png", "svg"] }
                 },
                 "required": ["shareId"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "search_scenes",
+            "title": "Search shared scenes",
+            "description": "Search recent shares by title, description, labels, source file, and text preview. This helps choose a named share when the user did not provide a shareId.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "query": { "type": "string" } },
                 "additionalProperties": false
             }
         },

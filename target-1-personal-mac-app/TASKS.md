@@ -65,15 +65,15 @@
 
 - [x] 增加应用级 `Agent On/Off` 开关，默认关闭。
 - [x] Tauri 侧启动/停止只读本地 HTTP API，只绑定 `127.0.0.1`。
-- [x] 每次开启生成 bearer token，关闭时清空 share。
+- [x] 本机 V1 不需要 token；关闭时停止监听，share 不可通过 HTTP/MCP 读取。
 - [x] 支持当前选区或当前文件生成 snapshot share。
 - [x] Share payload 包含 manifest、selection.json、scene.excalidraw、brief.md、render.png 和 render.svg。
 - [x] 在文件更多菜单增加“分享给 Agent”入口。
 - [x] 提供 Codex / Claude Code MCP 配置示例和 agent skill 模板。
-- [x] 设置面板基础入口：状态、端口、TTL、token env、配置复制、Revoke。
+- [x] 设置面板基础入口：状态、端口、TTL、配置复制、Shares Manager、Clean expired、Revoke all。
+- [x] 实现 MCP resources/tools/prompts，复用当前 share store。
+- [x] 支持按 share 名称、描述、标签、来源文件和文本预览搜索。
 - [ ] 设置面板增强：TTL 可配置、audit log 可视化、Revoke all shares 分层确认。
-- [ ] 实现 MCP resources/tools/prompts，复用当前 share registry。
-- [ ] 支持搜索 scene 并由 agent 请求显式分享。
 - [ ] 评估实时跟随文件变化模式，默认仍保持 snapshot。
 - [ ] 写回能力后置：评论、替代 UI sketch、agent 生成变体。
 

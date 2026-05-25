@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   Excalidraw,
   MainMenu,
@@ -90,10 +91,19 @@ import {
 } from "./storage/recentWorkspaces";
 import {
   blobToBytes,
+  cleanExpiredAgentShares,
+  deleteAgentShare,
   getAgentShareStatus,
+  listAgentShares,
   registerAgentShare,
+  renameAgentShare,
+  revokeAgentShare,
+  revokeAllAgentShares,
+  setCurrentSelectionShare,
   startAgentShareServer,
   stopAgentShareServer,
+  type AgentSharePayload,
+  type AgentShareSummary,
   type AgentShareStatus,
 } from "./agentSharing";
 
@@ -101,7 +111,7 @@ const AUTOSAVE_DELAY_MS = 900;
 const EXTERNAL_RESCAN_INTERVAL_MS = 2500;
 const EXTERNAL_RESCAN_MIN_GAP_MS = 1200;
 const THUMBNAIL_SIZE = 420;
-const AGENT_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
+const AGENT_SHARE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const DEFAULT_AGENT_SHARE_BASE_URL = "http://127.0.0.1:37411";
 
@@ -127,6 +137,48 @@ const downloadBlob = (blob: Blob, filename: string) => {
 };
 
 const sceneFilename = (scene: SceneMetadata) => basename(scene.relativePath);
+
+const buildShareBrief = (input: {
+  title: string;
+  description: string;
+  shareId: string;
+  scope: "selection" | "scene";
+  sourceFile: string;
+  createdAt: string;
+  expiresAt: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  elementCount: number;
+  text: string[];
+  runtimeCurrentSelection: boolean;
+}) =>
+  [
+    `# ${input.title}`,
+    "",
+    input.description,
+    "",
+    `Share ID: \`${input.shareId}\``,
+    `Scope: \`${input.scope}\``,
+    `Source file: \`${input.sourceFile}\``,
+    `Created: ${input.createdAt}`,
+    input.runtimeCurrentSelection
+      ? "Expires: when Expose current selection is turned off or the App exits"
+      : `Expires: ${input.expiresAt}`,
+    "",
+    "## Visual Context",
+    "",
+    `Bounds: x=${input.bounds.x}, y=${input.bounds.y}, width=${input.bounds.width}, height=${input.bounds.height}`,
+    `Elements: ${input.elementCount}`,
+    "",
+    "## Text Found",
+    "",
+    input.text.length
+      ? input.text.map((item) => `- ${item}`).join("\n")
+      : "- No text elements found.",
+    "",
+    "## Agent Instructions",
+    "",
+    "Use this share as read-only design context. Read this brief first, inspect render.png or render.svg for visual layout, and read selection.json when exact structure is needed.",
+  ].join("\n");
 
 const draftFromPayload = (payload: ScenePayload): DraftState => ({
   elements: payload.elements,
@@ -222,6 +274,26 @@ const textFromShareElements = (elements: readonly unknown[]) =>
         ),
     ),
   );
+
+const labelsFromInput = (value: string) =>
+  Array.from(
+    new Set(
+      value
+        .split(/[,\s]+/)
+        .map((label) => label.trim())
+        .filter(Boolean),
+    ),
+  );
+
+const shareStatusLabel = (status: AgentShareSummary["status"]) => {
+  if (status === "active") {
+    return "Active";
+  }
+  if (status === "expired") {
+    return "Expired";
+  }
+  return "Revoked";
+};
 
 type FileTreeNode = {
   kind: "directory" | "file";
@@ -427,8 +499,16 @@ export const App = () => {
   const [isBooting, setIsBooting] = useState(false);
   const [agentShareStatus, setAgentShareStatus] =
     useState<AgentShareStatus | null>(null);
+  const [agentShares, setAgentShares] = useState<AgentShareSummary[]>([]);
   const [isSharingToAgent, setIsSharingToAgent] = useState(false);
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(false);
+  const [isSharesManagerOpen, setIsSharesManagerOpen] = useState(false);
+  const [exposeCurrentSelection, setExposeCurrentSelection] = useState(false);
+  const [currentSelectionRevision, setCurrentSelectionRevision] = useState(0);
+  const [editingShareId, setEditingShareId] = useState<string | null>(null);
+  const [editingShareTitle, setEditingShareTitle] = useState("");
+  const [editingShareDescription, setEditingShareDescription] = useState("");
+  const [editingShareLabels, setEditingShareLabels] = useState("");
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const pendingCreateInputRef = useRef<HTMLInputElement | null>(null);
@@ -571,11 +651,24 @@ export const App = () => {
     return status;
   }, []);
 
+  const refreshAgentShares = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setAgentShares([]);
+      return [];
+    }
+    const shares = await listAgentShares();
+    setAgentShares(shares);
+    return shares;
+  }, []);
+
   useEffect(() => {
     void refreshAgentShareStatus().catch(() => {
       setAgentShareStatus(null);
     });
-  }, [refreshAgentShareStatus]);
+    void refreshAgentShares().catch(() => {
+      setAgentShares([]);
+    });
+  }, [refreshAgentShareStatus, refreshAgentShares]);
 
   const toggleAgentSharing = useCallback(async () => {
     if (!isTauriRuntime()) {
@@ -587,10 +680,13 @@ export const App = () => {
         ? await stopAgentShareServer()
         : await startAgentShareServer();
       setAgentShareStatus(status);
+      if (!status.enabled) {
+        setExposeCurrentSelection(false);
+      }
       setError(
         status.enabled
           ? `Agent Sharing 已开启：${status.baseUrl}`
-          : "Agent Sharing 已关闭，所有分享已失效。",
+          : "Agent Sharing 已关闭，本地 MCP/API 已停止监听。",
       );
       return status;
     } catch (cause) {
@@ -607,17 +703,6 @@ export const App = () => {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }, []);
-
-  const ensureAgentSharingEnabled = useCallback(async () => {
-    if (!isTauriRuntime()) {
-      throw new Error("Agent Sharing 目前只在 Mac App 中可用。");
-    }
-    const status = agentShareStatus?.enabled
-      ? agentShareStatus
-      : await startAgentShareServer();
-    setAgentShareStatus(status);
-    return status;
-  }, [agentShareStatus]);
 
   useEffect(() => {
     if (!openMenuSceneId) {
@@ -1006,9 +1091,12 @@ export const App = () => {
         return;
       }
       setSaveStatus("dirty");
+      if (exposeCurrentSelection) {
+        setCurrentSelectionRevision((revision) => revision + 1);
+      }
       scheduleAutosave();
     },
-    [activeScene, scheduleAutosave],
+    [activeScene, exposeCurrentSelection, scheduleAutosave],
   );
 
   const createNewScene = useCallback(() => {
@@ -1446,35 +1534,15 @@ export const App = () => {
     [activeScene, getActiveDraft, saveExportBlob],
   );
 
-  const shareActiveToAgent = useCallback(async () => {
-    if (!workspace || !activeScene) {
-      return;
-    }
-    if (!isTauriRuntime()) {
-      setError("Share to Agent 目前只在 Mac App 中可用。");
-      return;
-    }
-    const draft = getActiveDraft();
-    if (!draft) {
-      setError("当前文件还没有可分享的内容。");
-      return;
-    }
-
-    setIsSharingToAgent(true);
-    setError(null);
-    try {
-      if (saveStatus === "dirty") {
-        await saveNowRef.current();
+  const buildAgentSharePayload = useCallback(
+    async (options: { runtimeCurrentSelection: boolean }): Promise<AgentSharePayload> => {
+      if (!activeScene) {
+        throw new Error("No active scene.");
       }
-
-      let status = agentShareStatus?.enabled
-        ? agentShareStatus
-        : await startAgentShareServer();
-      setAgentShareStatus(status);
-      if (!status.baseUrl || !status.token) {
-        throw new Error("Agent Sharing API 没有返回可用的本地地址或 token。");
+      const draft = getActiveDraft();
+      if (!draft) {
+        throw new Error("No active draft.");
       }
-
       const allElements = draft.elements.filter((element) => !isDeletedElement(element));
       const selectedIds = selectedElementIdsFromAppState(draft.appState);
       const selectedElements =
@@ -1486,62 +1554,31 @@ export const App = () => {
           : [];
       const elementsToShare = selectedElements.length > 0 ? selectedElements : allElements;
       if (elementsToShare.length === 0) {
-        setError("当前画布没有可分享的图形。");
-        return;
+        throw new Error("当前画布没有可分享的图形。");
       }
 
       const scope = selectedElements.length > 0 ? "selection" : "scene";
-      const shareId = createShareId();
+      const shareId = options.runtimeCurrentSelection ? "current-selection" : createShareId();
       const createdAt = new Date();
       const expiresAt = new Date(createdAt.getTime() + AGENT_SHARE_TTL_MS);
+      const createdAtIso = createdAt.toISOString();
+      const expiresAtIso = expiresAt.toISOString();
       const bounds = calculateElementBounds(elementsToShare);
       const text = textFromShareElements(elementsToShare);
-      const basePath = `/v1/shares/${shareId}`;
-      const assets = {
-        manifest: `${basePath}/manifest`,
-        excalidraw: `${basePath}/scene.excalidraw`,
-        selectionJson: `${basePath}/selection.json`,
-        png: `${basePath}/render.png`,
-        svg: `${basePath}/render.svg`,
-        brief: `${basePath}/brief.md`,
+      const title = options.runtimeCurrentSelection
+        ? `${stem(sceneFilename(activeScene))} current selection`
+        : `${stem(sceneFilename(activeScene))} ${scope === "selection" ? "selection" : "scene"}`;
+      const description = options.runtimeCurrentSelection
+        ? "Runtime current selection, available only while Expose current selection is on."
+        : `${scope === "selection" ? "Selected shapes" : "Full scene"} from ${activeScene.relativePath}`;
+      const labels: string[] = [];
+      const selection = {
+        elementIds: elementsToShare
+          .map(elementId)
+          .filter((id): id is string => Boolean(id)),
+        bounds,
+        text,
       };
-      const title = `${stem(sceneFilename(activeScene))} ${scope === "selection" ? "selection" : "scene"}`;
-
-      const selectionJson = {
-        schemaVersion: 1,
-        shareId,
-        scope,
-        title,
-        sceneId: activeScene.id,
-        sourceFile: activeScene.relativePath,
-        selection: {
-          elementIds: elementsToShare
-            .map(elementId)
-            .filter((id): id is string => Boolean(id)),
-          bounds,
-          text,
-          elements: elementsToShare,
-        },
-        files: draft.files,
-      };
-
-      const manifest = {
-        schemaVersion: 1,
-        shareId,
-        scope,
-        title,
-        sceneId: activeScene.id,
-        sourceFile: activeScene.relativePath,
-        createdAt: createdAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-        selection: {
-          elementIds: selectionJson.selection.elementIds,
-          bounds,
-          text,
-        },
-        assets,
-      };
-
       const exportAppState = {
         ...draft.appState,
         exportBackground: true,
@@ -1562,64 +1599,105 @@ export const App = () => {
         files: draft.files as never,
         exportPadding: 32,
       });
-      const manifestUrl = `${status.baseUrl}${assets.manifest}`;
-      const briefMd = [
-        `# ${title}`,
-        "",
-        `Share ID: \`${shareId}\``,
-        `Scope: \`${scope}\``,
-        `Source file: \`${activeScene.relativePath}\``,
-        `Created: ${createdAt.toISOString()}`,
-        `Expires: ${expiresAt.toISOString()}`,
-        "",
-        "## How to use",
-        "",
-        "Read the manifest first, then inspect the rendered PNG/SVG for visual layout and `selection.json` for exact element structure.",
-        "",
-        "## Visual Context",
-        "",
-        `Bounds: x=${bounds.x}, y=${bounds.y}, width=${bounds.width}, height=${bounds.height}`,
-        `Elements: ${elementsToShare.length}`,
-        "",
-        "## Text Found",
-        "",
-        text.length ? text.map((item) => `- ${item}`).join("\n") : "- No text elements found.",
-        "",
-        "## Agent Prompt",
-        "",
-        "Use this Excalidraw share as product/design context. If implementing UI, translate the sketch into layout, components, states, interactions, and verification steps before coding.",
-      ].join("\n");
 
-      status = await registerAgentShare({
+      return {
         shareId,
         scope,
         title,
+        description,
+        labels,
         sceneId: activeScene.id,
         sourceFile: activeScene.relativePath,
-        createdAt: createdAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
+        createdAt: createdAtIso,
+        updatedAt: createdAtIso,
+        expiresAt: expiresAtIso,
         expiresAtMs: expiresAt.getTime(),
-        manifest,
-        selectionJson,
+        selection,
+        textPreview: text.slice(0, 12),
+        selectionJson: {
+          schemaVersion: 1,
+          shareId,
+          title,
+          description,
+          labels,
+          scope,
+          sceneId: activeScene.id,
+          sourceFile: activeScene.relativePath,
+          selection: {
+            ...selection,
+            elements: elementsToShare,
+          },
+          files: draft.files,
+        },
         sceneExcalidraw: serializeDraft(draft),
         renderSvg: svg.outerHTML,
         renderPng: await blobToBytes(pngBlob),
-        briefMd,
-      });
+        briefMd: buildShareBrief({
+          title,
+          description,
+          shareId,
+          scope,
+          sourceFile: activeScene.relativePath,
+          createdAt: createdAtIso,
+          expiresAt: expiresAtIso,
+          bounds,
+          elementCount: elementsToShare.length,
+          text,
+          runtimeCurrentSelection: options.runtimeCurrentSelection,
+        }),
+      };
+    },
+    [activeScene, getActiveDraft],
+  );
+
+  const shareActiveToAgent = useCallback(async () => {
+    if (!workspace || !activeScene) {
+      return;
+    }
+    if (!isTauriRuntime()) {
+      setError("Share to Agent 目前只在 Mac App 中可用。");
+      return;
+    }
+
+    setIsSharingToAgent(true);
+    setError(null);
+    try {
+      if (saveStatus === "dirty") {
+        await saveNowRef.current();
+      }
+
+      const status = agentShareStatus?.enabled
+        ? agentShareStatus
+        : await startAgentShareServer();
       setAgentShareStatus(status);
+      if (!status.baseUrl) {
+        throw new Error("Agent Sharing API 没有返回可用的本地地址。");
+      }
+
+      const share = await buildAgentSharePayload({ runtimeCurrentSelection: false });
+      await registerAgentShare(share);
+      const nextStatus = await refreshAgentShareStatus();
+      await refreshAgentShares();
 
       const shareNote = [
         "Personal Excalidraw Agent Share",
-        `shareId=${shareId}`,
-        `manifest=${manifestUrl}`,
-        `authorization=Bearer ${status.token ?? agentShareStatus?.token ?? ""}`,
+        `shareId=${share.shareId}`,
+        `title=${share.title}`,
+        `manifest=${status.baseUrl}/v1/shares/${share.shareId}/manifest`,
+        `mcp=${status.baseUrl}/mcp`,
+        "Use list_recent_shares or get_share_manifest in the personal-excalidraw MCP.",
       ].join("\n");
       try {
         await navigator.clipboard?.writeText(shareNote);
       } catch {
         // Clipboard is a convenience; the share itself is already registered.
       }
-      setError(`已创建 Agent 分享：${shareId}，manifest 地址已复制。`);
+      setError(
+        `已创建 Agent 分享：${share.title} (${share.shareId})，manifest 地址已复制。`,
+      );
+      if (nextStatus) {
+        setAgentShareStatus(nextStatus);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1628,10 +1706,208 @@ export const App = () => {
   }, [
     activeScene,
     agentShareStatus,
-    getActiveDraft,
+    buildAgentSharePayload,
+    refreshAgentShareStatus,
+    refreshAgentShares,
     saveStatus,
     workspace,
   ]);
+
+  const beginEditShare = useCallback((share: AgentShareSummary) => {
+    setEditingShareId(share.shareId);
+    setEditingShareTitle(share.title);
+    setEditingShareDescription(share.description);
+    setEditingShareLabels(share.labels.join(", "));
+  }, []);
+
+  const cancelEditShare = useCallback(() => {
+    setEditingShareId(null);
+    setEditingShareTitle("");
+    setEditingShareDescription("");
+    setEditingShareLabels("");
+  }, []);
+
+  const saveShareMetadata = useCallback(
+    async (shareId: string) => {
+      const title = editingShareTitle.trim();
+      if (!title) {
+        setError("Share 名称不能为空。");
+        return;
+      }
+      try {
+        await renameAgentShare(shareId, {
+          title,
+          description: editingShareDescription.trim(),
+          labels: labelsFromInput(editingShareLabels),
+        });
+        cancelEditShare();
+        await refreshAgentShares();
+        await refreshAgentShareStatus();
+        setError("Share 信息已更新。");
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [
+      cancelEditShare,
+      editingShareDescription,
+      editingShareLabels,
+      editingShareTitle,
+      refreshAgentShareStatus,
+      refreshAgentShares,
+    ],
+  );
+
+  const copySharePrompt = useCallback(
+    async (share: AgentShareSummary) => {
+      const prompt = [
+        "Use the personal-excalidraw MCP server to read this shared sketch.",
+        `Share title: ${share.title}`,
+        `shareId: ${share.shareId}`,
+        `sourceFile: ${share.sourceFile}`,
+        "",
+        "Recommended flow:",
+        "1. Call get_share_manifest with the shareId.",
+        "2. Read the brief first.",
+        "3. Inspect image.png or image.svg for visual layout.",
+        "4. Read selection.json when exact structure, text, bounds, or element IDs are needed.",
+      ].join("\n");
+      await copyAgentText(prompt, "Share 提示词");
+    },
+    [copyAgentText],
+  );
+
+  const revokeShare = useCallback(
+    async (shareId: string) => {
+      try {
+        await revokeAgentShare(shareId);
+        await refreshAgentShares();
+        await refreshAgentShareStatus();
+        setError("Share 已取消。");
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [refreshAgentShareStatus, refreshAgentShares],
+  );
+
+  const removeShare = useCallback(
+    async (shareId: string) => {
+      try {
+        await deleteAgentShare(shareId);
+        await refreshAgentShares();
+        await refreshAgentShareStatus();
+        setError("Share 已删除。");
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [refreshAgentShareStatus, refreshAgentShares],
+  );
+
+  const cleanExpiredShares = useCallback(async () => {
+    try {
+      const count = await cleanExpiredAgentShares();
+      await refreshAgentShares();
+      await refreshAgentShareStatus();
+      setError(`已清理 ${count} 个过期分享。`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [refreshAgentShareStatus, refreshAgentShares]);
+
+  const revokeAllShares = useCallback(async () => {
+    try {
+      await revokeAllAgentShares();
+      await refreshAgentShares();
+      await refreshAgentShareStatus();
+      setError("所有 Share 已取消。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [refreshAgentShareStatus, refreshAgentShares]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+    if (!exposeCurrentSelection) {
+      void setCurrentSelectionShare(null)
+        .then(() => refreshAgentShareStatus())
+        .catch(() => undefined);
+      return;
+    }
+    if (!activeScene) {
+      void setCurrentSelectionShare(null)
+        .then(() => refreshAgentShareStatus())
+        .catch(() => undefined);
+      return;
+    }
+    const syncTimer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const status = agentShareStatus?.enabled
+            ? agentShareStatus
+            : await startAgentShareServer();
+          setAgentShareStatus(status);
+          const share = await buildAgentSharePayload({
+            runtimeCurrentSelection: true,
+          });
+          await setCurrentSelectionShare(share);
+          await refreshAgentShareStatus();
+        } catch (cause) {
+          void setCurrentSelectionShare(null).catch(() => undefined);
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      })();
+    }, 650);
+    return () => {
+      window.clearTimeout(syncTimer);
+    };
+  }, [
+    activeScene,
+    agentShareStatus?.enabled,
+    buildAgentSharePayload,
+    currentSelectionRevision,
+    exposeCurrentSelection,
+    refreshAgentShareStatus,
+  ]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
+    void listen<string>("agent-sharing-menu", (event) => {
+      if (event.payload === "agent-share-current") {
+        void shareActiveToAgent();
+        return;
+      }
+      if (event.payload === "agent-toggle-api") {
+        void toggleAgentSharing();
+        return;
+      }
+      if (event.payload === "agent-open-manager") {
+        setIsSharesManagerOpen(true);
+        void refreshAgentShares();
+        return;
+      }
+      if (event.payload === "agent-open-settings") {
+        setIsAgentSettingsOpen(true);
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      cleanup = unlisten;
+    });
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, [refreshAgentShares, shareActiveToAgent, toggleAgentSharing]);
 
   const agentBaseUrl =
     agentShareStatus?.baseUrl ?? DEFAULT_AGENT_SHARE_BASE_URL;
@@ -1641,7 +1917,6 @@ export const App = () => {
       [
         "[mcp_servers.personal_excalidraw]",
         `url = "${agentMcpUrl}"`,
-        'bearer_token_env_var = "PERSONAL_EXCALIDRAW_TOKEN"',
         "enabled = true",
       ].join("\n"),
     [agentMcpUrl],
@@ -1654,9 +1929,6 @@ export const App = () => {
             "personal-excalidraw": {
               type: "http",
               url: agentMcpUrl,
-              headers: {
-                Authorization: "Bearer ${PERSONAL_EXCALIDRAW_TOKEN}",
-              },
             },
           },
         },
@@ -1670,7 +1942,7 @@ export const App = () => {
       [
         "Personal Excalidraw Agent Sharing HTTP API",
         `Base URL: ${agentBaseUrl}`,
-        "Auth: Authorization: Bearer <token>",
+        "Auth: none. The server binds to 127.0.0.1 and is controlled by the App's Agent Sharing switch.",
         "",
         "Endpoints:",
         "GET /health",
@@ -1682,9 +1954,10 @@ export const App = () => {
         "GET /v1/shares/{shareId}/brief.md",
         "GET /v1/shares/{shareId}/render.png",
         "GET /v1/shares/{shareId}/render.svg",
+        "POST /mcp",
         "",
         "Read order for agents: brief.md, render.png/render.svg, selection.json, scene.excalidraw.",
-        "Current MCP endpoint is reserved at /mcp and will use the same bearer token.",
+        "Use MCP list_recent_shares to find the right named share before asking the user for a shareId.",
       ].join("\n"),
     [agentBaseUrl],
   );
@@ -1698,13 +1971,13 @@ export const App = () => {
         "",
         "# Personal Excalidraw Agent Share",
         "",
-        "Use the personal-excalidraw MCP server first when it is available. If MCP is not available but the user provides a manifest URL and bearer token, use the HTTP API directly.",
+        "Use the personal-excalidraw MCP server first when it is available. If MCP is not available but the user provides a manifest URL, use the local HTTP API directly.",
         "",
         "## Workflow",
         "",
-        "1. Check API status or read the provided share manifest.",
+        "1. Call list_recent_shares and match by title, description, sourceFile, labels, and textPreview.",
         "2. Read brief.md first for the sketch intent and source metadata.",
-        "3. Read image.png or render.svg to inspect the visual layout.",
+        "3. Read image.png or image.svg to inspect the visual layout.",
         "4. Read selection.json when exact text, bounds, element IDs, grouping, or interaction hints are needed.",
         "5. Read scene.excalidraw only when the full source file is necessary.",
         "",
@@ -1712,7 +1985,7 @@ export const App = () => {
         "",
         "- Treat every share as read-only unless the user explicitly asks for a write-back workflow and the tool supports it.",
         "- Do not assume unshared canvas content exists.",
-        "- If the API is off, unreachable, expired, or unauthorized, ask the user to open Personal Excalidraw, turn on Agent Sharing, and create a fresh share.",
+        "- If the API is off, unreachable, expired, or revoked, ask the user to open Personal Excalidraw, turn on Agent Sharing, and create or re-enable a share.",
         "- Prefer the smallest resource that answers the question.",
         "",
         "## UI Implementation From Sketch",
@@ -1724,21 +1997,6 @@ export const App = () => {
       ].join("\n"),
     [],
   );
-
-  const copyAgentTokenEnv = useCallback(async () => {
-    try {
-      const status = await ensureAgentSharingEnabled();
-      if (!status.token) {
-        throw new Error("Agent Sharing API 没有返回 token。");
-      }
-      await copyAgentText(
-        `export PERSONAL_EXCALIDRAW_TOKEN=${status.token}`,
-        "Token env",
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, [copyAgentText, ensureAgentSharingEnabled]);
 
   const backupVisibleScenes = useCallback(async () => {
     if (!workspace || filteredScenes.length === 0) {
@@ -2301,17 +2559,42 @@ export const App = () => {
                   </div>
                   <div>
                     <dt>TTL</dt>
-                    <dd>24h snapshot</dd>
+                    <dd>7d snapshot</dd>
+                  </div>
+                  <div>
+                    <dt>Auth</dt>
+                    <dd>No token</dd>
                   </div>
                 </dl>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={exposeCurrentSelection}
+                    disabled={!activeScene}
+                    onChange={(event) => {
+                      setExposeCurrentSelection(event.target.checked);
+                      setCurrentSelectionRevision((revision) => revision + 1);
+                    }}
+                  />
+                  <span>Expose current selection</span>
+                </label>
                 <div className="settings-actions">
-                  <button onClick={() => void copyAgentTokenEnv()}>
-                    <Copy size={14} />
-                    Token env
+                  <button
+                    onClick={() => {
+                      setIsSharesManagerOpen(true);
+                      void refreshAgentShares();
+                    }}
+                  >
+                    <Archive size={14} />
+                    Shares
                   </button>
-                  <button onClick={() => void stopAgentShareServer().then(setAgentShareStatus)}>
+                  <button onClick={() => void cleanExpiredShares()}>
+                    <RefreshCw size={14} />
+                    Clean
+                  </button>
+                  <button onClick={() => void revokeAllShares()}>
                     <Trash2 size={14} />
-                    Revoke
+                    Revoke all
                   </button>
                 </div>
               </div>
@@ -2340,7 +2623,7 @@ export const App = () => {
             </div>
 
             <div className="agent-settings__footer">
-              <span>MCP transport: planned on the same local registry.</span>
+              <span>MCP/API: local-only, read-only, no token.</span>
               <button onClick={() => void shareActiveToAgent()} disabled={!activeScene || isSharingToAgent}>
                 {isSharingToAgent ? (
                   <Loader2 size={14} className="spin" />
@@ -2349,6 +2632,161 @@ export const App = () => {
                 )}
                 Share current
               </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isSharesManagerOpen && (
+        <div
+          className="settings-backdrop"
+          role="presentation"
+          onPointerDown={() => {
+            setIsSharesManagerOpen(false);
+            cancelEditShare();
+          }}
+        >
+          <section
+            className="agent-settings shares-manager"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shares-manager-title"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <header className="agent-settings__header">
+              <div>
+                <p className="section-label">Agent Shares</p>
+                <h2 id="shares-manager-title">分享管理</h2>
+              </div>
+              <button
+                className="icon-button"
+                title="关闭"
+                onClick={() => {
+                  setIsSharesManagerOpen(false);
+                  cancelEditShare();
+                }}
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="settings-actions">
+              <button onClick={() => void shareActiveToAgent()} disabled={!activeScene || isSharingToAgent}>
+                {isSharingToAgent ? (
+                  <Loader2 size={14} className="spin" />
+                ) : (
+                  <Share2 size={14} />
+                )}
+                Share current
+              </button>
+              <button onClick={() => void refreshAgentShares()}>
+                <RefreshCw size={14} />
+                Refresh
+              </button>
+              <button onClick={() => void cleanExpiredShares()}>
+                <Trash2 size={14} />
+                Clean expired
+              </button>
+              <button onClick={() => void revokeAllShares()}>
+                <Trash2 size={14} />
+                Revoke all
+              </button>
+            </div>
+
+            <div className="share-list">
+              {agentShares.length === 0 ? (
+                <div className="empty-list">还没有 Agent Share</div>
+              ) : (
+                agentShares.map((share) => (
+                  <article className="share-row" key={share.shareId}>
+                    {editingShareId === share.shareId ? (
+                      <form
+                        className="share-edit"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void saveShareMetadata(share.shareId);
+                        }}
+                      >
+                        <input
+                          value={editingShareTitle}
+                          onChange={(event) => setEditingShareTitle(event.target.value)}
+                          placeholder="Share 名称"
+                          autoFocus
+                        />
+                        <textarea
+                          value={editingShareDescription}
+                          onChange={(event) =>
+                            setEditingShareDescription(event.target.value)
+                          }
+                          placeholder="描述"
+                          rows={3}
+                        />
+                        <input
+                          value={editingShareLabels}
+                          onChange={(event) => setEditingShareLabels(event.target.value)}
+                          placeholder="标签，用逗号或空格分隔"
+                        />
+                        <div className="share-row__actions">
+                          <button type="submit">
+                            <Save size={14} />
+                            保存
+                          </button>
+                          <button type="button" onClick={cancelEditShare}>
+                            <X size={14} />
+                            取消
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <>
+                        <div className="share-row__main">
+                          <div>
+                            <strong>{share.title}</strong>
+                            <span>{share.shareId}</span>
+                          </div>
+                          <p>{share.description || share.sourceFile}</p>
+                          <div className="share-meta">
+                            <span>{shareStatusLabel(share.status)}</span>
+                            <span>{share.scope}</span>
+                            <span>{formatDateTime(share.expiresAt)}</span>
+                            {share.lastReadAt && (
+                              <span>Read {formatDateTime(share.lastReadAt)}</span>
+                            )}
+                          </div>
+                          {share.labels.length > 0 && (
+                            <div className="share-tags">
+                              {share.labels.map((label) => (
+                                <span key={label}>{label}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="share-row__actions">
+                          <button onClick={() => void copySharePrompt(share)}>
+                            <Copy size={14} />
+                            Prompt
+                          </button>
+                          <button onClick={() => beginEditShare(share)}>
+                            <Pencil size={14} />
+                            Rename
+                          </button>
+                          <button
+                            disabled={share.status === "revoked"}
+                            onClick={() => void revokeShare(share.shareId)}
+                          >
+                            <X size={14} />
+                            Revoke
+                          </button>
+                          <button onClick={() => void removeShare(share.shareId)}>
+                            <Trash2 size={14} />
+                            Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </article>
+                ))
+              )}
             </div>
           </section>
         </div>

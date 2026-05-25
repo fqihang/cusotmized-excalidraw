@@ -12,10 +12,17 @@ use std::{
     path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem, Submenu},
+    Emitter, Manager,
+};
 use walkdir::WalkDir;
 
 const META_DIR: &str = ".personal-excalidraw";
+const MENU_AGENT_SHARE_CURRENT: &str = "agent-share-current";
+const MENU_AGENT_TOGGLE_API: &str = "agent-toggle-api";
+const MENU_AGENT_OPEN_MANAGER: &str = "agent-open-manager";
+const MENU_AGENT_OPEN_SETTINGS: &str = "agent-open-settings";
 
 #[derive(Serialize)]
 struct NativeFileEntry {
@@ -302,6 +309,64 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .menu(|handle| {
+            let menu = Menu::default(handle)?;
+            let share_current = MenuItem::with_id(
+                handle,
+                MENU_AGENT_SHARE_CURRENT,
+                "Share Current to Agent",
+                true,
+                None::<&str>,
+            )?;
+            let toggle_api = MenuItem::with_id(
+                handle,
+                MENU_AGENT_TOGGLE_API,
+                "Toggle Agent Sharing API",
+                true,
+                None::<&str>,
+            )?;
+            let open_manager = MenuItem::with_id(
+                handle,
+                MENU_AGENT_OPEN_MANAGER,
+                "Open Shares Manager",
+                true,
+                None::<&str>,
+            )?;
+            let open_settings = MenuItem::with_id(
+                handle,
+                MENU_AGENT_OPEN_SETTINGS,
+                "Open Agent Sharing Settings",
+                true,
+                None::<&str>,
+            )?;
+            let agent_menu = Submenu::with_items(
+                handle,
+                "Agent",
+                true,
+                &[
+                    &share_current,
+                    &toggle_api,
+                    &open_manager,
+                    &open_settings,
+                ],
+            )?;
+            menu.append(&agent_menu)?;
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            let event_id = event.id().as_ref();
+            if matches!(
+                event_id,
+                MENU_AGENT_SHARE_CURRENT
+                    | MENU_AGENT_TOGGLE_API
+                    | MENU_AGENT_OPEN_MANAGER
+                    | MENU_AGENT_OPEN_SETTINGS
+            ) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("agent-sharing-menu", event_id);
+                }
+            }
+        })
         .setup(|app| {
             let share_root = app.path().app_data_dir()?.join("agent-shares");
             let agent_share_state = AgentShareState::new(share_root)
