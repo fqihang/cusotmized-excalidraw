@@ -356,7 +356,29 @@ export const textWysiwyg = ({
           coordY = y;
         }
       }
-      const [viewportX, viewportY] = getViewportCoords(coordX, coordY);
+
+      let editorCoordX = coordX;
+      let editorCoordY = coordY;
+      if (container && updatedTextElement.containerId) {
+        if (!isArrowElement(container)) {
+          const editorCoords = computeBoundTextPosition(
+            container,
+            {
+              ...updatedTextElement,
+              width: maxWidth,
+            } as ExcalidrawTextElementWithContainer,
+            elementsMap,
+          );
+          editorCoordX = editorCoords.x;
+          editorCoordY = editorCoords.y;
+          width = maxWidth;
+        }
+      }
+
+      const [viewportX, viewportY] = getViewportCoords(
+        editorCoordX,
+        editorCoordY,
+      );
 
       if (!container) {
         maxWidth = (appState.width - 8 - viewportX) / appState.zoom.value;
@@ -408,9 +430,9 @@ export const textWysiwyg = ({
           updatedTextElement.lineHeight,
         ),
         textAlign,
-        width: updatedTextElement.width,
-        x: coordX,
-        y: coordY,
+        width,
+        x: editorCoordX,
+        y: editorCoordY,
       };
       editable.scrollTop = 0;
       // For some reason updating font attribute doesn't set font family
