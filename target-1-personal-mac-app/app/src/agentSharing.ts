@@ -85,6 +85,9 @@ export const registerAgentShare = (share: AgentSharePayload) =>
 export const listAgentShares = () =>
   invoke<AgentShareSummary[]>("list_agent_shares");
 
+export const readAgentShareRenderPng = (shareId: string) =>
+  invoke<number[]>("read_agent_share_render_png", { shareId });
+
 export const renameAgentShare = (shareId: string, patch: ShareMetadataPatch) =>
   invoke<AgentShareSummary>("rename_agent_share", { shareId, patch });
 

@@ -491,6 +491,37 @@ export const textWysiwyg = ({
   editable.value = element.originalText;
   updateWysiwygStyle();
 
+  const keepArrowBoundEditorReadable = () => {
+    const updatedTextElement = app.scene.getElement<ExcalidrawTextElement>(id);
+    if (!updatedTextElement || !isTextElement(updatedTextElement)) {
+      return;
+    }
+
+    const container = getContainerElement(
+      updatedTextElement,
+      app.scene.getNonDeletedElementsMap(),
+    );
+    if (!container || !isArrowElement(container) || !updatedTextElement.containerId) {
+      return;
+    }
+
+    const desiredWidth =
+      Math.max(
+        updatedTextElement.width,
+        getTextWidth(editable.value, getFontString(updatedTextElement)),
+      ) + 0.5;
+    const currentWidth = parseFloat(editable.style.width) || 0;
+
+    if (desiredWidth > currentWidth) {
+      editable.style.width = `${desiredWidth}px`;
+    }
+    editable.scrollLeft = 0;
+  };
+
+  const handleCompositionUpdate = () => {
+    keepArrowBoundEditorReadable();
+  };
+
   const getCaretIndexFromInitialSceneCoords = () => {
     if (!initialCaretSceneCoords || !currentTextLayout) {
       return null;
@@ -652,7 +683,10 @@ export const textWysiwyg = ({
         editable.selectionEnd = selectionStart;
       }
       onChange(editable.value);
+      keepArrowBoundEditorReadable();
     };
+
+    editable.addEventListener("compositionupdate", handleCompositionUpdate);
   }
 
   editable.onkeydown = (event) => {
@@ -872,6 +906,7 @@ export const textWysiwyg = ({
     editable.onblur = null;
     editable.oninput = null;
     editable.onkeydown = null;
+    editable.removeEventListener("compositionupdate", handleCompositionUpdate);
 
     if (observer) {
       observer.disconnect();

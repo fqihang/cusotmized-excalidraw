@@ -69,6 +69,10 @@ The app auto-copies the Codex handoff prompt on successful share creation. If cl
 
 Shares Manager remains the full persistent management surface:
 
+- keep current-canvas share creation visually separate from historical share recovery
+- show the active source file near the current-canvas share actions
+- label historical shares that do not belong to the active source file so users do not copy an old share for the wrong canvas
+- show each historical share's generated `render.png` preview so users can visually recognize what they are about to copy
 - rename metadata
 - revoke
 - delete

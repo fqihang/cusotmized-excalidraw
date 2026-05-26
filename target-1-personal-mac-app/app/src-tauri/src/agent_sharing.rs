@@ -386,10 +386,7 @@ impl AgentShareStore {
         Ok(self.index.shares.clone())
     }
 
-    pub fn read_manifest(
-        &mut self,
-        share_id: &str,
-    ) -> Result<AgentShareManifest, AgentShareError> {
+    pub fn read_manifest(&mut self, share_id: &str) -> Result<AgentShareManifest, AgentShareError> {
         let manifest = self.read_manifest_unchecked(share_id)?;
         self.ensure_readable(&manifest)?;
         self.record_read(share_id, "manifest")?;
@@ -407,6 +404,16 @@ impl AgentShareStore {
         let bytes = fs::read(path)?;
         self.record_read(share_id, kind.resource_name())?;
         Ok(bytes)
+    }
+
+    pub fn preview_asset(
+        &mut self,
+        share_id: &str,
+        kind: ShareAssetKind,
+    ) -> Result<Vec<u8>, AgentShareError> {
+        let manifest = self.read_manifest_unchecked(share_id)?;
+        self.ensure_readable(&manifest)?;
+        fs::read(self.share_asset_path(share_id, kind)).map_err(AgentShareError::from)
     }
 
     pub fn update_share_metadata(
@@ -478,12 +485,14 @@ impl AgentShareStore {
             .index
             .shares
             .iter()
-            .filter_map(|summary| match self.read_manifest_unchecked(&summary.share_id) {
-                Ok(manifest) if manifest.expires_at_ms <= current_ms() => {
-                    Some(summary.share_id.clone())
-                }
-                _ => None,
-            })
+            .filter_map(
+                |summary| match self.read_manifest_unchecked(&summary.share_id) {
+                    Ok(manifest) if manifest.expires_at_ms <= current_ms() => {
+                        Some(summary.share_id.clone())
+                    }
+                    _ => None,
+                },
+            )
             .collect::<Vec<_>>();
         let removed = ids.len();
         for share_id in ids {
@@ -557,7 +566,10 @@ pub fn start_agent_share_server(
     let listener = TcpListener::bind(("127.0.0.1", requested_port))
         .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))
         .map_err(|error| error.to_string())?;
-    let actual_port = listener.local_addr().map_err(|error| error.to_string())?.port();
+    let actual_port = listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
     let thread_state = state.inner().clone();
@@ -616,6 +628,18 @@ pub fn list_agent_shares(state: State<AgentShareState>) -> Result<Vec<AgentShare
 }
 
 #[tauri::command]
+pub fn read_agent_share_render_png(
+    state: State<AgentShareState>,
+    share_id: String,
+) -> Result<Vec<u8>, String> {
+    let mut registry = state.registry.lock().map_err(|error| error.to_string())?;
+    registry
+        .store
+        .preview_asset(&share_id, ShareAssetKind::RenderPng)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn rename_agent_share(
     state: State<AgentShareState>,
     share_id: String,
@@ -658,7 +682,10 @@ pub fn clean_expired_agent_shares(state: State<AgentShareState>) -> Result<usize
 #[tauri::command]
 pub fn revoke_all_agent_shares(state: State<AgentShareState>) -> Result<(), String> {
     let mut registry = state.registry.lock().map_err(|error| error.to_string())?;
-    registry.store.revoke_all().map_err(|error| error.to_string())
+    registry
+        .store
+        .revoke_all()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -746,9 +773,7 @@ fn parse_http_request(
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
-        let size = stream
-            .read(&mut chunk)
-            .map_err(|error| error.to_string())?;
+        let size = stream.read(&mut chunk).map_err(|error| error.to_string())?;
         if size == 0 {
             break;
         }
@@ -767,9 +792,7 @@ fn parse_http_request(
                 .and_then(|(_, value)| value.trim().parse::<usize>().ok())
                 .unwrap_or(0);
             while buffer.len() < header_end + content_length {
-                let size = stream
-                    .read(&mut chunk)
-                    .map_err(|error| error.to_string())?;
+                let size = stream.read(&mut chunk).map_err(|error| error.to_string())?;
                 if size == 0 {
                     break;
                 }
@@ -846,14 +869,23 @@ pub(crate) fn handle_agent_share_request(
 
     if path == "/v1/status" {
         let Ok(mut registry) = state.registry.lock() else {
-            return json_response("500 Internal Server Error", json!({ "error": "state_lock_failed" }));
+            return json_response(
+                "500 Internal Server Error",
+                json!({ "error": "state_lock_failed" }),
+            );
         };
-        return json_response("200 OK", json!(agent_share_status_from_registry(&mut registry)));
+        return json_response(
+            "200 OK",
+            json!(agent_share_status_from_registry(&mut registry)),
+        );
     }
 
     if path == "/v1/shares" {
         let Ok(mut registry) = state.registry.lock() else {
-            return json_response("500 Internal Server Error", json!({ "error": "state_lock_failed" }));
+            return json_response(
+                "500 Internal Server Error",
+                json!({ "error": "state_lock_failed" }),
+            );
         };
         return match registry.store.list_recent_shares() {
             Ok(shares) => json_response("200 OK", json!({ "shares": shares })),
@@ -896,7 +928,12 @@ fn handle_mcp_request(body: &[u8], state: &AgentShareState) -> Vec<u8> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     if request.get("id").is_none() {
-        return http_response("202 Accepted", "application/json; charset=utf-8", Vec::new(), &[]);
+        return http_response(
+            "202 Accepted",
+            "application/json; charset=utf-8",
+            Vec::new(),
+            &[],
+        );
     }
     let result = match method {
         "initialize" => Ok(json!({
@@ -912,47 +949,38 @@ fn handle_mcp_request(body: &[u8], state: &AgentShareState) -> Vec<u8> {
             }
         })),
         "resources/list" => mcp_resources_list(state),
-        "resources/read" => {
-            match request
-                .pointer("/params/uri")
-                .and_then(Value::as_str)
-            {
-                Some(uri) => mcp_read_resource(state, uri),
-                None => Err(mcp_error(-32602, "resources/read requires params.uri")),
-            }
-        }
+        "resources/read" => match request.pointer("/params/uri").and_then(Value::as_str) {
+            Some(uri) => mcp_read_resource(state, uri),
+            None => Err(mcp_error(-32602, "resources/read requires params.uri")),
+        },
         "tools/list" => Ok(json!({ "tools": mcp_tools() })),
-        "tools/call" => {
-            match request
-                .pointer("/params/name")
-                .and_then(Value::as_str)
-            {
-                Some(name) => {
-                    let arguments = request
-                        .pointer("/params/arguments")
-                        .cloned()
-                        .unwrap_or_else(|| json!({}));
-                    mcp_call_tool(state, name, arguments)
-                }
-                None => Err(mcp_error(-32602, "tools/call requires params.name")),
+        "tools/call" => match request.pointer("/params/name").and_then(Value::as_str) {
+            Some(name) => {
+                let arguments = request
+                    .pointer("/params/arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                mcp_call_tool(state, name, arguments)
             }
-        }
+            None => Err(mcp_error(-32602, "tools/call requires params.name")),
+        },
         "prompts/list" => Ok(json!({ "prompts": mcp_prompts() })),
-        "prompts/get" => {
-            match request
-                .pointer("/params/name")
-                .and_then(Value::as_str)
-            {
-                Some(name) => mcp_get_prompt(name),
-                None => Err(mcp_error(-32602, "prompts/get requires params.name")),
-            }
-        }
+        "prompts/get" => match request.pointer("/params/name").and_then(Value::as_str) {
+            Some(name) => mcp_get_prompt(name),
+            None => Err(mcp_error(-32602, "prompts/get requires params.name")),
+        },
         _ => Err(mcp_error(-32601, "method not found")),
     };
 
     match result {
-        Ok(result) => json_response("200 OK", json!({ "jsonrpc": "2.0", "id": id, "result": result })),
-        Err(error) => json_response("200 OK", json!({ "jsonrpc": "2.0", "id": id, "error": error })),
+        Ok(result) => json_response(
+            "200 OK",
+            json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+        ),
+        Err(error) => json_response(
+            "200 OK",
+            json!({ "jsonrpc": "2.0", "id": id, "error": error }),
+        ),
     }
 }
 
@@ -971,9 +999,21 @@ fn mcp_resources_list(state: &AgentShareState) -> Result<Value, Value> {
     }
     if registry.expose_current_selection && registry.current_selection.is_some() {
         resources.extend([
-            resource("excalidraw://current-selection/manifest", "Current selection manifest", "application/json"),
-            resource("excalidraw://current-selection/brief", "Current selection brief", "text/markdown"),
-            resource("excalidraw://current-selection/image.png", "Current selection PNG", "image/png"),
+            resource(
+                "excalidraw://current-selection/manifest",
+                "Current selection manifest",
+                "application/json",
+            ),
+            resource(
+                "excalidraw://current-selection/brief",
+                "Current selection brief",
+                "text/markdown",
+            ),
+            resource(
+                "excalidraw://current-selection/image.png",
+                "Current selection PNG",
+                "image/png",
+            ),
         ]);
     }
     Ok(json!({ "resources": resources }))
@@ -1214,11 +1254,23 @@ fn mcp_tools() -> Value {
 
 fn mcp_prompts() -> Value {
     json!([
-        prompt_item("implement-ui-from-sketch", "Implement UI from a shared Excalidraw sketch"),
-        prompt_item("explain-architecture-sketch", "Explain an architecture sketch"),
-        prompt_item("turn-sketch-into-ticket", "Turn a sketch into an implementation ticket"),
+        prompt_item(
+            "implement-ui-from-sketch",
+            "Implement UI from a shared Excalidraw sketch"
+        ),
+        prompt_item(
+            "explain-architecture-sketch",
+            "Explain an architecture sketch"
+        ),
+        prompt_item(
+            "turn-sketch-into-ticket",
+            "Turn a sketch into an implementation ticket"
+        ),
         prompt_item("review-flow-from-sketch", "Review a flow from a sketch"),
-        prompt_item("generate-acceptance-criteria-from-sketch", "Generate acceptance criteria from a sketch")
+        prompt_item(
+            "generate-acceptance-criteria-from-sketch",
+            "Generate acceptance criteria from a sketch"
+        )
     ])
 }
 
@@ -1242,7 +1294,10 @@ fn mcp_get_prompt(name: &str) -> Result<Value, Value> {
 
 fn http_share_asset(state: &AgentShareState, share_id: &str, kind: ShareAssetKind) -> Vec<u8> {
     let Ok(mut registry) = state.registry.lock() else {
-        return json_response("500 Internal Server Error", json!({ "error": "state_lock_failed" }));
+        return json_response(
+            "500 Internal Server Error",
+            json!({ "error": "state_lock_failed" }),
+        );
     };
     if kind == ShareAssetKind::Manifest {
         return match registry.store.read_manifest(share_id) {
@@ -1267,14 +1322,20 @@ fn http_share_asset(state: &AgentShareState, share_id: &str, kind: ShareAssetKin
 
 fn http_current_selection_asset(state: &AgentShareState, kind: ShareAssetKind) -> Vec<u8> {
     let Ok(registry) = state.registry.lock() else {
-        return json_response("500 Internal Server Error", json!({ "error": "state_lock_failed" }));
+        return json_response(
+            "500 Internal Server Error",
+            json!({ "error": "state_lock_failed" }),
+        );
     };
     let Some(share) = registry
         .current_selection
         .as_ref()
         .filter(|_| registry.expose_current_selection)
     else {
-        return json_response("404 Not Found", json!({ "error": "current_selection_not_exposed" }));
+        return json_response(
+            "404 Not Found",
+            json!({ "error": "current_selection_not_exposed" }),
+        );
     };
     let bytes = match current_selection_bytes(share, kind) {
         Some(bytes) => bytes,
@@ -1289,7 +1350,10 @@ fn current_selection_resource(uri: &str, share: &AgentShareInput, kind: ShareAss
         ShareAssetKind::Manifest => text_resource(
             uri,
             "application/json",
-            pretty_json(&manifest_from_input(share, share_assets("current-selection"))),
+            pretty_json(&manifest_from_input(
+                share,
+                share_assets("current-selection"),
+            )),
         ),
         ShareAssetKind::SelectionJson => {
             text_resource(uri, "application/json", pretty_json(&share.selection_json))
@@ -1405,12 +1469,14 @@ fn share_error_response(error: AgentShareError) -> Vec<u8> {
         AgentShareError::ShareRevoked => {
             json_response("410 Gone", json!({ "error": "share_revoked" }))
         }
-        AgentShareError::InvalidInput(message) => {
-            json_response("400 Bad Request", json!({ "error": "invalid_input", "message": message }))
-        }
-        AgentShareError::Io(message) | AgentShareError::Json(message) => {
-            json_response("500 Internal Server Error", json!({ "error": "share_store_error", "message": message }))
-        }
+        AgentShareError::InvalidInput(message) => json_response(
+            "400 Bad Request",
+            json!({ "error": "invalid_input", "message": message }),
+        ),
+        AgentShareError::Io(message) | AgentShareError::Json(message) => json_response(
+            "500 Internal Server Error",
+            json!({ "error": "share_store_error", "message": message }),
+        ),
     }
 }
 
@@ -1684,7 +1750,9 @@ mod tests {
     fn persisted_share_round_trips_and_rename_preserves_id() {
         let root = temp_root("round-trip");
         let mut store = AgentShareStore::new(root.clone()).expect("store");
-        store.register_share(sample_share("sh_test")).expect("register");
+        store
+            .register_share(sample_share("sh_test"))
+            .expect("register");
 
         let summaries = store.list_recent_shares().expect("list");
         assert_eq!(summaries.len(), 1);
@@ -1710,10 +1778,29 @@ mod tests {
     }
 
     #[test]
+    fn preview_asset_reads_png_without_marking_share_as_read() {
+        let root = temp_root("preview");
+        let mut store = AgentShareStore::new(root).expect("store");
+        store
+            .register_share(sample_share("sh_test"))
+            .expect("register");
+
+        let png = store
+            .preview_asset("sh_test", ShareAssetKind::RenderPng)
+            .expect("preview");
+        assert_eq!(png, vec![137, 80, 78, 71]);
+
+        let summaries = store.list_recent_shares().expect("list");
+        assert_eq!(summaries[0].last_read_at, None);
+    }
+
+    #[test]
     fn revoke_and_delete_change_readability_and_files() {
         let root = temp_root("revoke-delete");
         let mut store = AgentShareStore::new(root.clone()).expect("store");
-        store.register_share(sample_share("sh_test")).expect("register");
+        store
+            .register_share(sample_share("sh_test"))
+            .expect("register");
 
         store.revoke_share("sh_test").expect("revoke");
         assert_eq!(

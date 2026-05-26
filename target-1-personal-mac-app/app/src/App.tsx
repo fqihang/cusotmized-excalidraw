@@ -95,6 +95,7 @@ import {
   deleteAgentShare,
   getAgentShareStatus,
   listAgentShares,
+  readAgentShareRenderPng,
   registerAgentShare,
   renameAgentShare,
   revokeAgentShare,
@@ -511,6 +512,7 @@ export const App = () => {
   const [agentShareStatus, setAgentShareStatus] =
     useState<AgentShareStatus | null>(null);
   const [agentShares, setAgentShares] = useState<AgentShareSummary[]>([]);
+  const [sharePreviewUrls, setSharePreviewUrls] = useState<Record<string, string>>({});
   const [isSharingToAgent, setIsSharingToAgent] = useState(false);
   const [isAgentShareMenuOpen, setIsAgentShareMenuOpen] = useState(false);
   const [handoffPanel, setHandoffPanel] = useState<HandoffPanelState | null>(
@@ -702,6 +704,51 @@ export const App = () => {
       setAgentShares([]);
     });
   }, [refreshAgentShareStatus, refreshAgentShares]);
+
+  useEffect(() => {
+    if (!isTauriRuntime() || agentShares.length === 0) {
+      setSharePreviewUrls({});
+      return;
+    }
+
+    let disposed = false;
+    const createdUrls: string[] = [];
+
+    void (async () => {
+      const previews = await Promise.all(
+        agentShares.map(async (share) => {
+          if (!isShareReadable(share)) {
+            return null;
+          }
+          try {
+            const bytes = await readAgentShareRenderPng(share.shareId);
+            const url = URL.createObjectURL(
+              new Blob([new Uint8Array(bytes)], { type: "image/png" }),
+            );
+            createdUrls.push(url);
+            return [share.shareId, url] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      if (disposed) {
+        createdUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      const previewEntries = previews.filter(
+        (preview): preview is readonly [string, string] => preview !== null,
+      );
+      setSharePreviewUrls(Object.fromEntries(previewEntries));
+    })();
+
+    return () => {
+      disposed = true;
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [agentShares]);
 
   const toggleAgentSharing = useCallback(async () => {
     if (!isTauriRuntime()) {
@@ -2503,6 +2550,11 @@ export const App = () => {
     );
   }
 
+  const activeSceneSourceFile = activeScene?.relativePath;
+  const activeSceneShareLabel = activeScene
+    ? sceneFilename(activeScene)
+    : "No active file";
+
   return (
     <main
       className="personal-shell"
@@ -2844,15 +2896,42 @@ export const App = () => {
               </button>
             </header>
 
+            <section className="share-current-panel">
+              <div>
+                <p className="section-label">Current canvas</p>
+                <strong>{activeSceneShareLabel}</strong>
+                <span>
+                  Create a new share for the file you are viewing. The list
+                  below is historical and may include other files.
+                </span>
+              </div>
+              <div className="share-current-panel__actions">
+                <button
+                  onClick={() => void shareActiveToAgent()}
+                  disabled={!activeScene || isSharingToAgent}
+                >
+                  {isSharingToAgent ? (
+                    <Loader2 size={14} className="spin" />
+                  ) : (
+                    <Share2 size={14} />
+                  )}
+                  Share current selection
+                </button>
+                <button
+                  onClick={() => void shareActiveToAgent("scene")}
+                  disabled={!activeScene || isSharingToAgent}
+                >
+                  {isSharingToAgent ? (
+                    <Loader2 size={14} className="spin" />
+                  ) : (
+                    <File size={14} />
+                  )}
+                  Share whole file
+                </button>
+              </div>
+            </section>
+
             <div className="settings-actions">
-              <button onClick={() => void shareActiveToAgent()} disabled={!activeScene || isSharingToAgent}>
-                {isSharingToAgent ? (
-                  <Loader2 size={14} className="spin" />
-                ) : (
-                  <Share2 size={14} />
-                )}
-                Share current
-              </button>
               <button onClick={() => void refreshAgentShares()}>
                 <RefreshCw size={14} />
                 Refresh
@@ -2871,105 +2950,146 @@ export const App = () => {
               {agentShares.length === 0 ? (
                 <div className="empty-list">还没有 Agent Share</div>
               ) : (
-                agentShares.map((share) => (
-                  <article className="share-row" key={share.shareId}>
-                    {editingShareId === share.shareId ? (
-                      <form
-                        className="share-edit"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void saveShareMetadata(share.shareId);
-                        }}
-                      >
-                        <input
-                          value={editingShareTitle}
-                          onChange={(event) => setEditingShareTitle(event.target.value)}
-                          placeholder="Share 名称"
-                          autoFocus
-                        />
-                        <textarea
-                          value={editingShareDescription}
-                          onChange={(event) =>
-                            setEditingShareDescription(event.target.value)
-                          }
-                          placeholder="描述"
-                          rows={3}
-                        />
-                        <input
-                          value={editingShareLabels}
-                          onChange={(event) => setEditingShareLabels(event.target.value)}
-                          placeholder="标签，用逗号或空格分隔"
-                        />
-                        <div className="share-row__actions">
-                          <button type="submit">
-                            <Save size={14} />
-                            保存
-                          </button>
-                          <button type="button" onClick={cancelEditShare}>
-                            <X size={14} />
-                            取消
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <>
-                        <div className="share-row__main">
-                          <div>
-                            <strong>{share.title}</strong>
-                            <span>{share.shareId}</span>
+                agentShares.map((share) => {
+                  const isCurrentFileShare =
+                    Boolean(activeSceneSourceFile) &&
+                    share.sourceFile === activeSceneSourceFile;
+                  return (
+                    <article
+                      className={
+                        isCurrentFileShare
+                          ? "share-row"
+                          : "share-row share-row--other-file"
+                      }
+                      key={share.shareId}
+                    >
+                      {editingShareId === share.shareId ? (
+                        <form
+                          className="share-edit"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void saveShareMetadata(share.shareId);
+                          }}
+                        >
+                          <input
+                            value={editingShareTitle}
+                            onChange={(event) =>
+                              setEditingShareTitle(event.target.value)
+                            }
+                            placeholder="Share 名称"
+                            autoFocus
+                          />
+                          <textarea
+                            value={editingShareDescription}
+                            onChange={(event) =>
+                              setEditingShareDescription(event.target.value)
+                            }
+                            placeholder="描述"
+                            rows={3}
+                          />
+                          <input
+                            value={editingShareLabels}
+                            onChange={(event) =>
+                              setEditingShareLabels(event.target.value)
+                            }
+                            placeholder="标签，用逗号或空格分隔"
+                          />
+                          <div className="share-row__actions">
+                            <button type="submit">
+                              <Save size={14} />
+                              保存
+                            </button>
+                            <button type="button" onClick={cancelEditShare}>
+                              <X size={14} />
+                              取消
+                            </button>
                           </div>
-                          <p>{share.description || share.sourceFile}</p>
-                          <div className="share-meta">
-                            <span>{shareStatusLabel(share.status)}</span>
-                            <span>{share.scope}</span>
-                            <span>{formatDateTime(share.expiresAt)}</span>
-                            {share.lastReadAt && (
-                              <span>Read {formatDateTime(share.lastReadAt)}</span>
+                        </form>
+                      ) : (
+                        <>
+                          <div
+                            className="share-row__preview"
+                            aria-label={`Preview for ${share.title}`}
+                          >
+                            {sharePreviewUrls[share.shareId] ? (
+                              <img
+                                alt=""
+                                src={sharePreviewUrls[share.shareId]}
+                              />
+                            ) : (
+                              <span>Preview unavailable</span>
                             )}
                           </div>
-                          {share.labels.length > 0 && (
-                            <div className="share-tags">
-                              {share.labels.map((label) => (
-                                <span key={label}>{label}</span>
-                              ))}
+                          <div className="share-row__main">
+                            <div>
+                              <strong>{share.title}</strong>
+                              <span>{share.shareId}</span>
                             </div>
-                          )}
-                        </div>
-                        <div className="share-row__actions">
-                          <button
-                            disabled={!isShareReadable(share)}
-                            onClick={() => void copyHandoffPrompt(share, "codex")}
-                          >
-                            <Copy size={14} />
-                            Codex
-                          </button>
-                          <button
-                            disabled={!isShareReadable(share)}
-                            onClick={() => void copyHandoffPrompt(share, "claude")}
-                          >
-                            <Copy size={14} />
-                            Claude
-                          </button>
-                          <button onClick={() => beginEditShare(share)}>
-                            <Pencil size={14} />
-                            Rename
-                          </button>
-                          <button
-                            disabled={share.status === "revoked"}
-                            onClick={() => void revokeShare(share.shareId)}
-                          >
-                            <X size={14} />
-                            Revoke
-                          </button>
-                          <button onClick={() => void removeShare(share.shareId)}>
-                            <Trash2 size={14} />
-                            Delete
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </article>
-                ))
+                            <p>{share.description || share.sourceFile}</p>
+                            <p className="share-row__source">
+                              Source file: {share.sourceFile}
+                            </p>
+                            <div className="share-meta">
+                              <span>{shareStatusLabel(share.status)}</span>
+                              <span>{share.scope}</span>
+                              <span>
+                                {isCurrentFileShare
+                                  ? "current file"
+                                  : "not current file"}
+                              </span>
+                              <span>{formatDateTime(share.expiresAt)}</span>
+                              {share.lastReadAt && (
+                                <span>Read {formatDateTime(share.lastReadAt)}</span>
+                              )}
+                            </div>
+                            {share.labels.length > 0 && (
+                              <div className="share-tags">
+                                {share.labels.map((label) => (
+                                  <span key={label}>{label}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="share-row__actions">
+                            <button
+                              disabled={!isShareReadable(share)}
+                              onClick={() =>
+                                void copyHandoffPrompt(share, "codex")
+                              }
+                            >
+                              <Copy size={14} />
+                              Codex
+                            </button>
+                            <button
+                              disabled={!isShareReadable(share)}
+                              onClick={() =>
+                                void copyHandoffPrompt(share, "claude")
+                              }
+                            >
+                              <Copy size={14} />
+                              Claude
+                            </button>
+                            <button onClick={() => beginEditShare(share)}>
+                              <Pencil size={14} />
+                              Rename
+                            </button>
+                            <button
+                              disabled={share.status === "revoked"}
+                              onClick={() => void revokeShare(share.shareId)}
+                            >
+                              <X size={14} />
+                              Revoke
+                            </button>
+                            <button onClick={() => void removeShare(share.shareId)}>
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </article>
+                  );
+                })
               )}
             </div>
           </section>

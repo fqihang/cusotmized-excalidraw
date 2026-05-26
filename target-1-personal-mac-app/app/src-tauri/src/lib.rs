@@ -2,9 +2,10 @@ mod agent_sharing;
 
 use agent_sharing::{
     agent_share_status, clean_expired_agent_shares, delete_agent_share,
-    get_current_selection_share, list_agent_shares, register_agent_share, rename_agent_share,
-    revoke_agent_share, revoke_all_agent_shares, set_current_selection_share,
-    start_agent_share_server, stop_agent_share_server, AgentShareState,
+    get_current_selection_share, list_agent_shares, read_agent_share_render_png,
+    register_agent_share, rename_agent_share, revoke_agent_share, revoke_all_agent_shares,
+    set_current_selection_share, start_agent_share_server, stop_agent_share_server,
+    AgentShareState,
 };
 use serde::Serialize;
 use std::{
@@ -343,12 +344,7 @@ pub fn run() {
                 handle,
                 "Agent",
                 true,
-                &[
-                    &share_current,
-                    &toggle_api,
-                    &open_manager,
-                    &open_settings,
-                ],
+                &[&share_current, &toggle_api, &open_manager, &open_settings],
             )?;
             menu.append(&agent_menu)?;
             Ok(menu)
@@ -406,6 +402,7 @@ pub fn run() {
             stop_agent_share_server,
             register_agent_share,
             list_agent_shares,
+            read_agent_share_render_png,
             rename_agent_share,
             revoke_agent_share,
             delete_agent_share,
