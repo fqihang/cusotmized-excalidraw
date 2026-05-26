@@ -13,6 +13,7 @@
 - 本地优先：所有画布、索引、缩略图和标签默认保存在用户选择的本机 workspace。
 - 原生 Mac 入口：支持最近文件、拖拽打开、系统文件关联、菜单快捷键和离线使用。
 - Excalidraw 兼容：编辑核心不重写，直接嵌入 Excalidraw React 组件，并保存标准 `.excalidraw` JSON。
+- 正式打包管线：Mac release 通过测试、类型检查、Rust 测试、Tauri 打包、DMG 校验、体积预算和 manifest 输出后才视为可发布。
 - 管理能力补齐：在画布外增加文档列表、缩略图、全文搜索、标签、收藏、最近打开和自动保存状态。
 - 保存状态可点击：如果状态停在 Unsaved 或 Error，用户可以直接点状态胶囊触发保存重试。
 - Agent Sharing：把当前文件或选区打包成本地只读 share，供 Codex、Claude Code 等 agent 读取草图上下文。
@@ -79,3 +80,14 @@ Claude Code `.mcp.json` 示例：
 ```
 
 详细设计见 [AGENT_SHARING.md](AGENT_SHARING.md)，代码维护沉淀见 [AGENT_SHARING_MAINTAINER_NOTES.md](AGENT_SHARING_MAINTAINER_NOTES.md)。
+
+## 打包发布
+
+正式产物使用产品级 release pipeline：
+
+```bash
+cd target-1-personal-mac-app/app
+npm run package:release
+```
+
+它会运行 app/Rust 测试、TypeScript 检查、Tauri 打包、DMG 校验、体积预算检查，并输出 `release-manifest.json`。详细规则见 [PACKAGING.md](PACKAGING.md)。

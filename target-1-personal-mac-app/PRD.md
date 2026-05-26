@@ -70,6 +70,7 @@ MVP 包含：
 - 顶部 `Share` 主按钮必须创建当前画布/当前选择的新 snapshot share；下拉历史列表必须明确标记历史 share 是否来自当前文件，避免把旧文件 share 误当作最新选择。
 - Shares Manager 必须为本地已保存的历史 share 展示可用 PNG 预览；即使 share 已 revoked/expired，manager 也应能用本地预览帮助用户辨认，但 MCP/API 正式读取仍保持不可读。
 - Agent Sharing 的 app-side regression tests 必须能通过 app 包内 `npm test` 运行，并纳入 TypeScript 检查。
+- Mac release 必须通过正式 packaging pipeline：app 测试、TypeScript 检查、Rust 测试、Tauri 打包、DMG 校验、体积预算检查和 release manifest 输出。默认预算为 DMG <= 25 MiB、`.app` <= 40 MiB、frontend `dist` <= 30 MiB、largest JS asset <= 3 MiB、total JS assets <= 12 MiB。
 - 每个 scene 在列表中有标题、更新时间、标签和缩略图；缩略图失败不会影响文件保存。
 - 搜索能匹配文件名、用户标题、标签和文本元素内容。
 - App 在无网络状态下完成新建、编辑、保存、搜索和导出。

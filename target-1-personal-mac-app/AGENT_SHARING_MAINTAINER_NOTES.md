@@ -208,7 +208,7 @@ Core commands:
 cd target-1-personal-mac-app/app
 npm run typecheck
 npm run build
-npm run tauri:build
+npm run package:release
 ```
 
 ```bash
@@ -257,4 +257,3 @@ Skill packaging:
 - The current product provides prompt text for creating a skill.
 - A future version can ship a ready-to-install Codex skill directory or a
   one-click copy bundle, but this should not block first-run MCP setup.
-

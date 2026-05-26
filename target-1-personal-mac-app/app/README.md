@@ -29,10 +29,16 @@ npm run tauri:dev
 打包：
 
 ```bash
-npm run tauri:build
+npm run package:release
 ```
 
-产物会生成在 `src-tauri/target/release/bundle/` 下。当前 Mac bundle 是 `Personal Excalidraw Files.app`，bundle id 是 `io.personal.excalidraw.files`，用于避开旧 `Personal Excalidraw.app` 的 WebView 缓存。
+正式打包命令会运行 app/Rust 测试、TypeScript 检查、Tauri 打包、DMG 校验、体积预算检查，并生成 `src-tauri/target/release/bundle/release-manifest.json`。产物会生成在 `src-tauri/target/release/bundle/` 下。当前 Mac bundle 是 `Personal Excalidraw Files.app`，bundle id 是 `io.personal.excalidraw.files`，用于避开旧 `Personal Excalidraw.app` 的 WebView 缓存。
+
+只想检查已有产物和重写 manifest 时可用：
+
+```bash
+npm run package:release:reuse
+```
 
 ## 已实现
 

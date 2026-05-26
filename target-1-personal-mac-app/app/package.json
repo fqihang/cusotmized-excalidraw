@@ -9,6 +9,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run --environment jsdom",
     "typecheck": "tsc -b",
+    "package:release": "node scripts/releasePipeline.mjs",
+    "package:release:reuse": "node scripts/releasePipeline.mjs --skip-checks --skip-tauri-build",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:info": "tauri info"
