@@ -102,7 +102,18 @@ Expected: TypeScript passes.
 **Files:**
 - Modify: `target-1-personal-mac-app/app/src/App.tsx`
 
-- [ ] **Step 1: Add reconciliation effect**
+- [ ] **Step 1: Clear the autosave timer ref when the timer fires**
+
+Update `scheduleAutosave` so a fired timer no longer looks pending:
+
+```ts
+autosaveTimerRef.current = window.setTimeout(() => {
+  autosaveTimerRef.current = null;
+  void saveNow();
+}, AUTOSAVE_DELAY_MS);
+```
+
+- [ ] **Step 2: Add reconciliation effect**
 
 Add this effect after `scheduleAutosave` is defined:
 
@@ -129,9 +140,9 @@ useEffect(() => {
     }
 
     if (!autosaveTimerRef.current) {
-      scheduleAutosave();
-    }
-  }, SAVE_RECONCILE_INTERVAL_MS);
+        scheduleAutosave();
+      }
+    }, SAVE_RECONCILE_INTERVAL_MS);
 
   return () => {
     window.clearInterval(intervalId);
@@ -139,7 +150,7 @@ useEffect(() => {
 }, [saveStatus, scheduleAutosave]);
 ```
 
-- [ ] **Step 2: Make `saveNow` correct stale dirty state after waiting for an in-flight save**
+- [ ] **Step 3: Make `saveNow` correct stale dirty state after waiting for an in-flight save**
 
 After the initial in-flight save wait in `saveNow`, add:
 
@@ -163,7 +174,7 @@ if (
 
 Keep the existing draft/workspace guard after this block.
 
-- [ ] **Step 3: Run typecheck**
+- [ ] **Step 4: Run typecheck**
 
 Run:
 
@@ -339,4 +350,3 @@ Placeholder scan: No placeholders are intentionally left in this plan.
 Type consistency: The plan uses existing `SaveStatus`, `saveNowRef`, `autosaveTimerRef`, `latestRawRef`, and `lastSavedRawRef` names from `App.tsx`.
 
 Scope check: This is intentionally not the full 8-12 week roadmap. It is a small, testable code landing that improves daily trust in the app.
-

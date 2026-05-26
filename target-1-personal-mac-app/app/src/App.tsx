@@ -118,6 +118,7 @@ import {
 } from "./agentSharingPrompts";
 
 const AUTOSAVE_DELAY_MS = 900;
+const SAVE_RECONCILE_INTERVAL_MS = 1200;
 const EXTERNAL_RESCAN_INTERVAL_MS = 2500;
 const EXTERNAL_RESCAN_MIN_GAP_MS = 1200;
 const THUMBNAIL_SIZE = 420;
@@ -534,6 +535,9 @@ export const App = () => {
   const draftSceneIdRef = useRef<string | null>(null);
   const lastSavedRawRef = useRef<string | null>(null);
   const latestRawRef = useRef<string | null>(null);
+  const lastLocalChangeAtRef = useRef<number | null>(null);
+  const lastSuccessfulSaveAtRef = useRef<number | null>(null);
+  const lastSaveErrorAtRef = useRef<number | null>(null);
   const saveInFlightRef = useRef(false);
   const saveInFlightPromiseRef = useRef<Promise<void> | null>(null);
   const createCommitInFlightRef = useRef(false);
@@ -592,6 +596,10 @@ export const App = () => {
     const raw = payload ? serializeDraft(draftFromPayload(payload)) : null;
     lastSavedRawRef.current = raw;
     latestRawRef.current = raw;
+    const now = Date.now();
+    lastLocalChangeAtRef.current = null;
+    lastSaveErrorAtRef.current = null;
+    lastSuccessfulSaveAtRef.current = raw ? now : null;
   }, []);
 
   const expandFolderPath = useCallback((relativePath: string) => {
@@ -1031,6 +1039,22 @@ export const App = () => {
       }
     }
 
+    if (
+      latestRawRef.current &&
+      lastSavedRawRef.current &&
+      latestRawRef.current === lastSavedRawRef.current
+    ) {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      setSaveStatus((previous) =>
+        previous === "dirty" || previous === "saving" || previous === "error"
+          ? "saved"
+          : previous,
+      );
+    }
+
     const draft = getActiveDraft();
     if (!workspace || !activeScene || !draft) {
       return;
@@ -1061,6 +1085,8 @@ export const App = () => {
       await generateThumbnail(scene, draftToSave);
       setWorkspaceVersion(workspace);
       lastSavedRawRef.current = rawToSave;
+      lastSuccessfulSaveAtRef.current = Date.now();
+      lastSaveErrorAtRef.current = null;
       if (latestRawRef.current === rawToSave && draftSceneIdRef.current === scene.id) {
         setSaveStatus("saved");
       } else if (draftSceneIdRef.current === scene.id) {
@@ -1084,6 +1110,7 @@ export const App = () => {
       } catch {
         // The visible save error below is the actionable one.
       }
+      lastSaveErrorAtRef.current = Date.now();
       setSaveStatus("error");
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1109,9 +1136,41 @@ export const App = () => {
       window.clearTimeout(autosaveTimerRef.current);
     }
     autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
       void saveNow();
     }, AUTOSAVE_DELAY_MS);
   }, [saveNow]);
+
+  useEffect(() => {
+    if (saveStatus !== "dirty") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (saveInFlightRef.current || saveInFlightPromiseRef.current) {
+        return;
+      }
+
+      const latestRaw = latestRawRef.current;
+      const savedRaw = lastSavedRawRef.current;
+      if (latestRaw && savedRaw && latestRaw === savedRaw) {
+        if (autosaveTimerRef.current) {
+          window.clearTimeout(autosaveTimerRef.current);
+          autosaveTimerRef.current = null;
+        }
+        setSaveStatus("saved");
+        return;
+      }
+
+      if (!autosaveTimerRef.current) {
+        scheduleAutosave();
+      }
+    }, SAVE_RECONCILE_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [saveStatus, scheduleAutosave]);
 
   const handleCanvasChange = useCallback(
     (
@@ -1144,6 +1203,7 @@ export const App = () => {
         }
         return;
       }
+      lastLocalChangeAtRef.current = Date.now();
       setSaveStatus("dirty");
       if (exposeCurrentSelection) {
         setCurrentSelectionRevision((revision) => revision + 1);
@@ -2106,6 +2166,34 @@ export const App = () => {
             ? "Save failed"
             : "Ready";
 
+  const saveStateTitle = (() => {
+    if (saveStatus === "saving") {
+      return "正在保存到当前工作区文件。";
+    }
+    if (saveStatus === "dirty") {
+      const changedAt = lastLocalChangeAtRef.current
+        ? ` 最近更改：${formatDateTime(
+            new Date(lastLocalChangeAtRef.current).toISOString(),
+          )}`
+        : "";
+      return `有未保存更改。点击立即保存。${changedAt}`;
+    }
+    if (saveStatus === "error") {
+      const failedAt = lastSaveErrorAtRef.current
+        ? ` 失败时间：${formatDateTime(
+            new Date(lastSaveErrorAtRef.current).toISOString(),
+          )}`
+        : "";
+      return `上次保存失败。点击重试保存。${failedAt}`;
+    }
+    if (lastSuccessfulSaveAtRef.current) {
+      return `已保存。上次保存：${formatDateTime(
+        new Date(lastSuccessfulSaveAtRef.current).toISOString(),
+      )}`;
+    }
+    return "当前文件已就绪。";
+  })();
+
   const renderPendingCreate = (depth: number): ReactNode => {
     if (!pendingCreate) {
       return null;
@@ -2533,12 +2621,18 @@ export const App = () => {
                   formatDateTime={formatDateTime}
                   statusLabel={shareStatusLabel}
                 />
-                <span className={`save-state save-state--${saveStatus}`}>
+                <button
+                  className={`save-state save-state--${saveStatus}`}
+                  type="button"
+                  title={saveStateTitle}
+                  disabled={saveStatus === "saving" || !activeScene}
+                  onClick={() => void saveNowRef.current()}
+                >
                   {saveStatus === "saving" && (
                     <Loader2 size={14} className="spin" />
                   )}
                   {saveLabel}
-                </span>
+                </button>
               </div>
             )}
           >
