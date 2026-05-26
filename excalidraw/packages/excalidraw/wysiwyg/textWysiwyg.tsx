@@ -372,6 +372,12 @@ export const textWysiwyg = ({
           editorCoordX = editorCoords.x;
           editorCoordY = editorCoords.y;
           width = maxWidth;
+        } else {
+          const textWidth = getTextWidth(
+            updatedTextElement.originalText,
+            getFontString(updatedTextElement),
+          );
+          width = Math.max(width, textWidth);
         }
       }
 
@@ -435,6 +441,7 @@ export const textWysiwyg = ({
         y: editorCoordY,
       };
       editable.scrollTop = 0;
+      editable.scrollLeft = 0;
       // For some reason updating font attribute doesn't set font family
       // hence updating font family explicitly for test environment
       if (isTestEnv()) {
