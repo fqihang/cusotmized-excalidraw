@@ -117,6 +117,7 @@ import {
   buildAgentHandoffPrompt,
   type AgentTarget,
 } from "./agentSharingPrompts";
+import { collectAgentShareElements } from "./agentShareSelection";
 
 const AUTOSAVE_DELAY_MS = 900;
 const SAVE_RECONCILE_INTERVAL_MS = 1200;
@@ -1711,10 +1712,7 @@ export const App = () => {
       const selectedIds = selectedElementIdsFromAppState(draft.appState);
       const selectedElements =
         !options.forceSceneScope && selectedIds.size > 0
-          ? allElements.filter((element) => {
-              const id = elementId(element);
-              return id ? selectedIds.has(id) : false;
-            })
+          ? collectAgentShareElements(allElements, selectedIds)
           : [];
       const elementsToShare = selectedElements.length > 0 ? selectedElements : allElements;
       if (elementsToShare.length === 0) {

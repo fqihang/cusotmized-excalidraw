@@ -28,6 +28,7 @@ Implementation notes for future maintenance live in [AGENT_SHARING_MAINTAINER_NO
 9. The user can re-copy prompts later from the `Share` menu or Shares Manager.
 
 If no shapes are selected, the share scope falls back to the whole current scene.
+When shapes are selected, the share package includes visible bound text whose container or arrow is selected, even when Excalidraw does not list that text element in `selectedElementIds`.
 
 ## App Entrances
 
