@@ -411,8 +411,7 @@ impl AgentShareStore {
         share_id: &str,
         kind: ShareAssetKind,
     ) -> Result<Vec<u8>, AgentShareError> {
-        let manifest = self.read_manifest_unchecked(share_id)?;
-        self.ensure_readable(&manifest)?;
+        self.read_manifest_unchecked(share_id)?;
         fs::read(self.share_asset_path(share_id, kind)).map_err(AgentShareError::from)
     }
 
@@ -1792,6 +1791,38 @@ mod tests {
 
         let summaries = store.list_recent_shares().expect("list");
         assert_eq!(summaries[0].last_read_at, None);
+    }
+
+    #[test]
+    fn preview_asset_reads_revoked_png_for_local_manager() {
+        let root = temp_root("preview-revoked");
+        let mut store = AgentShareStore::new(root).expect("store");
+        store
+            .register_share(sample_share("sh_test"))
+            .expect("register");
+        store.revoke_share("sh_test").expect("revoke");
+
+        let png = store
+            .preview_asset("sh_test", ShareAssetKind::RenderPng)
+            .expect("preview revoked");
+
+        assert_eq!(png, vec![137, 80, 78, 71]);
+    }
+
+    #[test]
+    fn preview_asset_reads_expired_png_for_local_manager() {
+        let root = temp_root("preview-expired");
+        let mut store = AgentShareStore::new(root).expect("store");
+        let mut share = sample_share("sh_expired");
+        share.expires_at_ms = current_ms().saturating_sub(1);
+        share.expires_at = "2026-05-24T10:00:00.000Z".to_owned();
+        store.register_share(share).expect("register");
+
+        let png = store
+            .preview_asset("sh_expired", ShareAssetKind::RenderPng)
+            .expect("preview expired");
+
+        assert_eq!(png, vec![137, 80, 78, 71]);
     }
 
     #[test]

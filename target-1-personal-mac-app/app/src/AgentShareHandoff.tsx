@@ -17,6 +17,7 @@ export type HandoffPanelState = {
 export type AgentShareMenuProps = {
   apiEnabled: boolean;
   activeSceneAvailable: boolean;
+  currentSourceFile?: string | null;
   isOpen: boolean;
   isSharing: boolean;
   recentShares: AgentShareSummary[];
@@ -37,6 +38,7 @@ export const isShareReadable = (share: AgentShareSummary) =>
 export const AgentShareMenu = ({
   apiEnabled,
   activeSceneAvailable,
+  currentSourceFile,
   isOpen,
   isSharing,
   recentShares,
@@ -102,39 +104,47 @@ export const AgentShareMenu = ({
         </button>
         <div className="agent-share-menu__divider" />
         <div className="agent-share-menu__section">
-          <span>Recent shares</span>
+          <span>History shares</span>
           {!apiEnabled && <em>API off</em>}
         </div>
         {recentShares.length === 0 ? (
           <div className="agent-share-menu__empty">No shares yet</div>
         ) : (
-          recentShares.map((share) => (
-            <article className="agent-share-menu__share" key={share.shareId}>
-              <div>
-                <strong>{share.title}</strong>
-                <span>{share.sourceFile}</span>
-                <small>
-                  {statusLabel(share.status)} · {formatDateTime(share.expiresAt)}
-                </small>
-              </div>
-              {isShareReadable(share) ? (
-                <div className="agent-share-menu__actions">
-                  <button onClick={() => onCopyPrompt(share, "codex")}>
-                    <Copy size={13} />
-                    Codex
-                  </button>
-                  <button onClick={() => onCopyPrompt(share, "claude")}>
-                    <Copy size={13} />
-                    Claude
-                  </button>
+          recentShares.map((share) => {
+            const fileRelation = currentSourceFile
+              ? share.sourceFile === currentSourceFile
+                ? "current file"
+                : "not current file"
+              : "history";
+            return (
+              <article className="agent-share-menu__share" key={share.shareId}>
+                <div>
+                  <strong>{share.title}</strong>
+                  <span>{share.sourceFile}</span>
+                  <small>
+                    {statusLabel(share.status)} · {fileRelation} ·{" "}
+                    {formatDateTime(share.expiresAt)}
+                  </small>
                 </div>
-              ) : (
-                <span className="agent-share-menu__disabled">
-                  Create a fresh share to use this context
-                </span>
-              )}
-            </article>
-          ))
+                {isShareReadable(share) ? (
+                  <div className="agent-share-menu__actions">
+                    <button onClick={() => onCopyPrompt(share, "codex")}>
+                      <Copy size={13} />
+                      Codex
+                    </button>
+                    <button onClick={() => onCopyPrompt(share, "claude")}>
+                      <Copy size={13} />
+                      Claude
+                    </button>
+                  </div>
+                ) : (
+                  <span className="agent-share-menu__disabled">
+                    Create a fresh share to use this context
+                  </span>
+                )}
+              </article>
+            );
+          })
         )}
         <div className="agent-share-menu__divider" />
         <button

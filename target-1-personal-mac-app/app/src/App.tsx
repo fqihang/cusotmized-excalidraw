@@ -2652,6 +2652,7 @@ export const App = () => {
                 <AgentShareMenu
                   apiEnabled={Boolean(agentShareStatus?.enabled)}
                   activeSceneAvailable={Boolean(activeScene)}
+                  currentSourceFile={activeSceneSourceFile}
                   isOpen={isAgentShareMenuOpen}
                   isSharing={isSharingToAgent}
                   recentShares={recentAgentShares}

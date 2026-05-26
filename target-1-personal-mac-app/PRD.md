@@ -67,6 +67,9 @@ MVP 包含：
 - Finder 中已有 `.excalidraw` 文件可导入或直接打开，保存后仍可被上游 Excalidraw Web/App 读取。
 - 绑定在箭头上的文字进入编辑时必须保持可读宽度，包含近竖直箭头、单字中文和 IME 组合输入场景。
 - Agent selection share 生成的 PNG、SVG、brief 和 `selection.json` 必须包含选中容器/箭头上的可见绑定文字，即使这些文字元素本身没有出现在 `selectedElementIds` 中。
+- 顶部 `Share` 主按钮必须创建当前画布/当前选择的新 snapshot share；下拉历史列表必须明确标记历史 share 是否来自当前文件，避免把旧文件 share 误当作最新选择。
+- Shares Manager 必须为本地已保存的历史 share 展示可用 PNG 预览；即使 share 已 revoked/expired，manager 也应能用本地预览帮助用户辨认，但 MCP/API 正式读取仍保持不可读。
+- Agent Sharing 的 app-side regression tests 必须能通过 app 包内 `npm test` 运行，并纳入 TypeScript 检查。
 - 每个 scene 在列表中有标题、更新时间、标签和缩略图；缩略图失败不会影响文件保存。
 - 搜索能匹配文件名、用户标题、标签和文本元素内容。
 - App 在无网络状态下完成新建、编辑、保存、搜索和导出。

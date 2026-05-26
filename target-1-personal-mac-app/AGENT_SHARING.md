@@ -35,16 +35,17 @@ When shapes are selected, the share package includes visible bound text whose co
 - Canvas top right: `Agent On/Off` and `Share`.
 - File row menu: `分享给 Agent`.
 - Settings: API status, port, share count, 7-day TTL, no-token status, current selection toggle, config copy buttons, and share cleanup actions.
-- Shares Manager: open from settings or the macOS `Agent` menu; rename, revoke, delete, clean, and copy Codex or Claude Code share-specific prompts.
+- Shares Manager: open from settings or the macOS `Agent` menu; create a new current-canvas share, preview locally stored PNGs, rename, revoke, delete, clean, and copy Codex or Claude Code share-specific prompts. Local previews remain available for revoked or expired history entries so users can identify them, but MCP/API resource reads still reject inactive shares.
 - macOS menu bar: `Agent > Share Current to Agent`, `Toggle Agent Sharing API`, `Open Shares Manager`, and `Open Agent Sharing Settings`.
 
 ## Share Handoff
 
-The `Share` button is also the recovery entry for previous handoffs. It contains:
+The main `Share` button always creates a fresh snapshot for the current selection, falling back to the whole current scene when nothing is selected. The adjacent chevron opens historical shares and secondary actions. It contains:
 
 - `Share current selection`
 - `Share whole file`
-- recent shares with copy actions for readable shares
+- history shares marked as `current file` or `not current file`
+- copy actions for readable history shares
 - disabled status text for expired or revoked shares
 - `Open Shares Manager`
 

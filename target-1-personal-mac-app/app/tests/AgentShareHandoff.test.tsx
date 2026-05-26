@@ -33,6 +33,7 @@ const renderMenu = (props: Partial<Parameters<typeof AgentShareMenu>[0]> = {}) =
     activeSceneAvailable: true,
     isOpen: false,
     isSharing: false,
+    currentSourceFile: "scenes/mini.excalidraw",
     recentShares: [recentShare],
     onPrimaryShare: vi.fn(),
     onToggleOpen: vi.fn(),
@@ -93,5 +94,22 @@ describe("AgentShareMenu", () => {
 
     expect(onToggleOpen).toHaveBeenCalledTimes(1);
     expect(onPrimaryShare).not.toHaveBeenCalled();
+  });
+
+  test("marks recent shares from another file as historical context", () => {
+    renderMenu({ isOpen: true });
+
+    expect(document.body.textContent).toContain("History shares");
+    expect(document.body.textContent).toContain("not current file");
+  });
+
+  test("marks recent shares from the current file separately", () => {
+    renderMenu({
+      isOpen: true,
+      currentSourceFile: recentShare.sourceFile,
+    });
+
+    expect(document.body.textContent).toContain("current file");
+    expect(document.body.textContent).not.toContain("not current file");
   });
 });

@@ -36,7 +36,7 @@ describe("collectAgentShareElements", () => {
       new Set(["container-1"]),
     );
 
-    expect(elements.map((element) => element.id)).toEqual([
+    expect(elements.map((element) => (element as { id: string }).id)).toEqual([
       "container-1",
       "text-1",
     ]);
