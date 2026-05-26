@@ -105,6 +105,43 @@ describe("text wysiwyg", () => {
     expect(editor.scrollLeft).toBe(0);
   });
 
+  it("uses the arrow label max width when editing near-vertical arrow labels", async () => {
+    const textId = "vertical-arrow-label";
+    const arrow = API.createElement({
+      type: "arrow",
+      x: 100,
+      y: 100,
+      width: 0,
+      height: 180,
+      boundElements: [{ id: textId, type: "text" }],
+    });
+    const text = API.createElement({
+      id: textId,
+      type: "text",
+      text: "的",
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 25,
+      fontSize: 20,
+      textAlign: "center",
+      verticalAlign: "middle",
+      containerId: arrow.id,
+    });
+
+    API.setElements([arrow, text]);
+    API.setSelectedElements([arrow]);
+
+    Keyboard.keyPress(KEYS.ENTER);
+
+    const editor = await getTextEditor();
+    const editorWidth = parseFloat(editor.style.width);
+    const maxBoundTextWidth = getBoundTextMaxWidth(arrow, text);
+
+    expect(h.state.editingTextElement?.id).toBe(text.id);
+    expect(editorWidth).toBeGreaterThanOrEqual(maxBoundTextWidth);
+  });
+
   it("keeps arrow label editor wide while typing", async () => {
     const textId = "arrow-label-live";
     const arrow = API.createElement({

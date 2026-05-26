@@ -377,7 +377,17 @@ export const textWysiwyg = ({
             updatedTextElement.originalText,
             getFontString(updatedTextElement),
           );
-          width = Math.max(width, textWidth);
+          width = Math.max(width, textWidth, maxWidth);
+          const editorCoords = LinearElementEditor.getBoundTextElementPosition(
+            container,
+            {
+              ...updatedTextElement,
+              width,
+            } as ExcalidrawTextElementWithContainer,
+            elementsMap,
+          );
+          editorCoordX = editorCoords.x;
+          editorCoordY = editorCoords.y;
         }
       }
 
@@ -508,6 +518,7 @@ export const textWysiwyg = ({
     const desiredWidth =
       Math.max(
         updatedTextElement.width,
+        getBoundTextMaxWidth(container, updatedTextElement),
         getTextWidth(editable.value, getFontString(updatedTextElement)),
       ) + 0.5;
     const currentWidth = parseFloat(editable.style.width) || 0;
