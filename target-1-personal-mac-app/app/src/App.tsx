@@ -2943,6 +2943,13 @@ export const App = () => {
                             <Copy size={14} />
                             Codex
                           </button>
+                          <button
+                            disabled={!isShareReadable(share)}
+                            onClick={() => void copyHandoffPrompt(share, "claude")}
+                          >
+                            <Copy size={14} />
+                            Claude
+                          </button>
                           <button onClick={() => beginEditShare(share)}>
                             <Pencil size={14} />
                             Rename

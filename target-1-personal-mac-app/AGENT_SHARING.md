@@ -34,7 +34,7 @@ If no shapes are selected, the share scope falls back to the whole current scene
 - Canvas top right: `Agent On/Off` and `Share`.
 - File row menu: `分享给 Agent`.
 - Settings: API status, port, share count, 7-day TTL, no-token status, current selection toggle, config copy buttons, and share cleanup actions.
-- Shares Manager: open from settings or the macOS `Agent` menu; rename, revoke, delete, clean, and copy a share-specific prompt.
+- Shares Manager: open from settings or the macOS `Agent` menu; rename, revoke, delete, clean, and copy Codex or Claude Code share-specific prompts.
 - macOS menu bar: `Agent > Share Current to Agent`, `Toggle Agent Sharing API`, `Open Shares Manager`, and `Open Agent Sharing Settings`.
 
 ## Share Handoff
