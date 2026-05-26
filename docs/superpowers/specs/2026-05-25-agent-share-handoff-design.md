@@ -73,6 +73,7 @@ Shares Manager remains the full persistent management surface:
 - show the active source file near the current-canvas share actions
 - label historical shares that do not belong to the active source file so users do not copy an old share for the wrong canvas
 - show each historical share's generated `render.png` preview so users can visually recognize what they are about to copy
+- make the primary Share button create a fresh current-selection share before users copy or inspect context; keep history and recovery behind a separate dropdown action
 - rename metadata
 - revoke
 - delete

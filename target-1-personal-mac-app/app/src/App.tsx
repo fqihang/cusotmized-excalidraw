@@ -2657,6 +2657,10 @@ export const App = () => {
                   isOpen={isAgentShareMenuOpen}
                   isSharing={isSharingToAgent}
                   recentShares={recentAgentShares}
+                  onPrimaryShare={() => {
+                    setIsAgentShareMenuOpen(false);
+                    void shareActiveToAgent("selection");
+                  }}
                   onToggleOpen={() =>
                     setIsAgentShareMenuOpen((open) => !open)
                   }

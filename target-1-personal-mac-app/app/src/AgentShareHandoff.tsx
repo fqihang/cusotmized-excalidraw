@@ -20,6 +20,7 @@ export type AgentShareMenuProps = {
   isOpen: boolean;
   isSharing: boolean;
   recentShares: AgentShareSummary[];
+  onPrimaryShare: () => void;
   onToggleOpen: () => void;
   onClose: () => void;
   onShareSelection: () => void;
@@ -39,6 +40,7 @@ export const AgentShareMenu = ({
   isOpen,
   isSharing,
   recentShares,
+  onPrimaryShare,
   onToggleOpen,
   onClose,
   onShareSelection,
@@ -49,19 +51,31 @@ export const AgentShareMenu = ({
   statusLabel,
 }: AgentShareMenuProps) => (
   <div className="agent-share-menu-shell">
-    <button
-      className="agent-share-button"
-      type="button"
-      title="Share to Agent"
-      disabled={isSharing}
-      aria-haspopup="menu"
-      aria-expanded={isOpen}
-      onClick={onToggleOpen}
-    >
-      {isSharing ? <Loader2 size={14} className="spin" /> : <Share2 size={14} />}
-      Share
-      <ChevronDown size={14} />
-    </button>
+    <div className="agent-share-button-group">
+      <button
+        className="agent-share-button agent-share-button--primary"
+        type="button"
+        title="Share current selection to Agent"
+        disabled={!activeSceneAvailable || isSharing}
+        aria-label="Share current selection to Agent"
+        onClick={onPrimaryShare}
+      >
+        {isSharing ? <Loader2 size={14} className="spin" /> : <Share2 size={14} />}
+        Share
+      </button>
+      <button
+        className="agent-share-button agent-share-button--menu"
+        type="button"
+        title="Open share history and actions"
+        disabled={isSharing}
+        aria-label="Open share history and actions"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={onToggleOpen}
+      >
+        <ChevronDown size={14} />
+      </button>
+    </div>
     {isOpen && (
       <div className="agent-share-menu" role="menu">
         <button

@@ -507,10 +507,32 @@ body,
   border-color: #b2ddff !important;
 }
 
+.agent-share-button-group {
+  display: inline-flex;
+  align-items: center;
+  filter: drop-shadow(0 8px 24px rgba(15, 23, 42, 0.08));
+}
+
+.agent-share-button-group .agent-share-button {
+  box-shadow: none;
+}
+
 .agent-share-button {
   color: #ffffff !important;
   background: #1d252d !important;
   border-color: #1d252d !important;
+}
+
+.agent-share-button--primary {
+  border-radius: 999px 0 0 999px !important;
+  padding-right: 10px !important;
+}
+
+.agent-share-button--menu {
+  min-width: 34px !important;
+  border-left-color: rgba(255, 255, 255, 0.22) !important;
+  border-radius: 0 999px 999px 0 !important;
+  padding: 0 10px !important;
 }
 
 .agent-share-button:hover:not(:disabled) {
